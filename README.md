@@ -17,7 +17,7 @@ The repository is organised to clearly separate **project governance artefacts**
 ```text
 /
 ├── docs/     — Authoritative project documentation and artefacts
-├── src/      — System source code and implementation
+├── implementation/      — System source code and implementation
 └── README.md — Project overview and navigation
 ```
 ---

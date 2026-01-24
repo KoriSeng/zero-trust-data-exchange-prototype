@@ -1,0 +1,12 @@
+﻿{
+  "name": "cis3004-zero-trust-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Academic prototype workspace for CIS3004 (OIDC IdP simulation + platform components)",
+  "license": "UNLICENSED",
+  "scripts": {
+    "idp-a:dev": "node implementation/idp-a/server.js",
+    "idp-b:dev": "node implementation/idp-b/server.js",
+    "idp:test:smoke": "k6 run implementation/k6/idp-smoke.js"
+  }
+}
