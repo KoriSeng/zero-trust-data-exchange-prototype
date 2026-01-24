@@ -1,4 +1,4 @@
-# An Investigation of Zero Trust Principles in a Cloud-Based Secure Data Sharing Platform
+# Investigation into Zero Trust Architectures for Secure Inter-Organizational Data Exchange in Bio-Research Environments
 
 ## Overview
 
@@ -38,9 +38,9 @@ Typical contents include:
 
 ---
 
-## src/
+## implementation/
 
-The `src/` directory contains the **implementation of the proposed system**, developed to demonstrate the application of cybersecurity principles defined in the project documentation.
+The `implementation/` directory contains the **implementation of the proposed system**, developed to demonstrate the application of cybersecurity principles defined in the project documentation.
 
 The implementation is intended as a **prototype / proof-of-concept**, not a production-ready system.
 
