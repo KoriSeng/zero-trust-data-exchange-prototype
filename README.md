@@ -8,6 +8,15 @@ The project focuses on the design and implementation of a **secure cloud-based d
 
 This is an **academic project** only. All users, organisations, and data flows are **conceptual or simulated**. No real production data or external organisations are involved.
 
+## Disclaimer (Educational Use Only)
+
+This repository contains **prototype / proof-of-concept code** and **simulated identity-provider behaviour** intended for academic demonstration.
+
+- **Not production-ready:** no security audit or hardening is implied.
+- **Not a real Identity Provider:** the OIDC/IdP components are for controlled simulation and testing only.
+- **Do not use with real data, real organisations, or real user identities.**
+- **No warranty:** the software is provided "as is" under the MIT License (see `LICENSE`).
+
 ---
 
 ## Repository Structure
