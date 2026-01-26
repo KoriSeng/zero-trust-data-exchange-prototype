@@ -1,4 +1,4 @@
-﻿---
+---
 type: Task
 task_id: TASK-008
 title: "Define Terraform Infrastructure Baseline"
@@ -8,9 +8,11 @@ related_milestone: MS-002
 ---
 
 ## Description
+
 Define the Terraform approach for provisioning the AWS infrastructure required for the prototype in a repeatable way (environments, state handling approach, and module structure).
 
 ## Definition of Done
+
 - Terraform scope defined (which AWS resources are provisioned via IaC), including resources required for simulated OIDC issuers.
 - Environment variables/inputs documented (region, naming, tags).
 - State handling approach documented (local state vs managed state) appropriate to the academic context.

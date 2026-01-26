@@ -1,4 +1,4 @@
-﻿---
+---
 type: Milestone
 milestone_id: MS-001
 milestone_name: "Discovery and Planning Baseline"
@@ -11,11 +11,14 @@ related_tasks: [TASK-001]
 ---
 
 ## Objective
+
 Establish the Phase 2 governance baseline by producing the core governance artefacts aligned to DR-001.
 
 ## Deliverables
+
 - Governance artefacts under `/docs` (stakeholders, assumptions, requirements, risks, controls)
 
 ## Success Criteria
+
 - Artefacts are created using strict templates and are traceable to DR-001.
 - No ghost references (all referenced IDs resolve to existing artefacts).
