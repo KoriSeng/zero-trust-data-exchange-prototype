@@ -149,6 +149,47 @@ module "s3_poc" {
 }
 
 # ============================================================================
+# Cognito User Pool with OIDC Identity Providers
+# ============================================================================
+
+module "cognito" {
+  source = "./modules/cognito"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  idp_providers = [
+    {
+      provider_name = "IDP-A"
+      provider_type = "OIDC"
+      issuer_url    = module.idp_a.function_url
+      client_id     = "cognito-client-a"
+      client_secret = "cognito-secret-a-change-me"
+    },
+    {
+      provider_name = "IDP-B"
+      provider_type = "OIDC"
+      issuer_url    = module.idp_b.function_url
+      issuer_url    = module.idp_b.function_url
+      client_id     = "cognito-client-b"
+      client_secret = "cognito-secret-b-change-me"
+    }
+  ]
+
+  callback_urls = [
+    "http://localhost:3000/callback",
+    "https://localhost:3000/callback"
+  ]
+
+  logout_urls = [
+    "http://localhost:3000",
+    "https://localhost:3000"
+  ]
+
+  depends_on = [module.idp_a, module.idp_b]
+}
+
+# ============================================================================
 # Outputs
 # ============================================================================
 
@@ -195,4 +236,19 @@ output "poc_bucket_arn" {
 output "poc_presigner_role_arn" {
   description = "IAM role ARN used to generate pre-signed URLs for the POC bucket"
   value       = module.s3_poc.presigner_role_arn
+}
+
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID"
+  value       = module.cognito.user_pool_id
+}
+
+output "cognito_app_client_id" {
+  description = "Cognito App Client ID"
+  value       = module.cognito.app_client_id
+}
+
+output "cognito_hosted_ui_url" {
+  description = "Cognito Hosted UI URL"
+  value       = module.cognito.hosted_ui_url
 }
