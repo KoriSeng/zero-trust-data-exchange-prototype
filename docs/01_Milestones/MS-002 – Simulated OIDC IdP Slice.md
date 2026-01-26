@@ -3,8 +3,8 @@ type: Milestone
 milestone_id: MS-002
 milestone_name: "Simulated OIDC IdP Slice"
 milestone_type: "Design"
-status: "In Progress"
-target_date: 2026-02-07
+status: "Completed"
+target_date: 2026-02-01
 start_date: 2026-01-25
 related_decisions: [DR-001]
 related_tasks: [TASK-005, TASK-008, TASK-009, TASK-010, TASK-011]
