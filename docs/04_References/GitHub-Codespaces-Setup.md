@@ -371,7 +371,7 @@ When modifying the devcontainer:
 
 ## Changelog
 
-### Initial Setup (2026-01-26)
+### 2026-01-26
 
 - Created devcontainer configuration
 - Installed Node.js, .NET SDK, Terraform, OpenTofu

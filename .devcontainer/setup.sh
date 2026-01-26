@@ -24,7 +24,16 @@ print_section() {
 print_section "Installing OpenTofu (TOFU)..."
 if ! command -v tofu &> /dev/null; then
     # Install OpenTofu
-    curl -Lo tofu.deb "https://github.com/opentofu/opentofu/releases/latest/download/tofu_$(curl -s https://api.github.com/repos/opentofu/opentofu/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')_amd64.deb"
+    # Fetch the latest release info once
+    TOFU_RELEASE=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases/latest)
+    TOFU_VERSION=$(echo "$TOFU_RELEASE" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 | sed 's/v//')
+    
+    if [ -z "$TOFU_VERSION" ]; then
+        echo "Error: Failed to fetch OpenTofu version"
+        exit 1
+    fi
+    
+    curl -Lo tofu.deb "https://github.com/opentofu/opentofu/releases/latest/download/tofu_${TOFU_VERSION}_amd64.deb"
     sudo dpkg -i tofu.deb
     rm tofu.deb
     echo -e "${GREEN}✓${NC} OpenTofu installed successfully"
