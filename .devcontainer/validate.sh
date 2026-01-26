@@ -90,6 +90,7 @@ echo "--------------------"
 test_command terraform "Terraform"
 test_command tofu "OpenTofu"
 test_command aws "AWS CLI"
+test_command k6 "k6"
 
 echo ""
 echo "Optional Tools:"
@@ -106,6 +107,7 @@ test_version npm "npm"
 test_version terraform "Terraform"
 test_version tofu "OpenTofu"
 test_version aws "AWS CLI"
+test_version k6 "k6"
 test_version dotnet ".NET SDK" true
 
 echo ""

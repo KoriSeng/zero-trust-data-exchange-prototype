@@ -44,6 +44,22 @@ fi
 # Verify OpenTofu installation
 tofu version
 
+# Install k6
+print_section "Verifying k6 installation..."
+if ! command -v k6 &> /dev/null; then
+    echo "Installing k6..."
+    sudo apt-get update
+    sudo apt-get install -y apt-transport-https
+    curl https://dl.k6.io/key.gpg | sudo apt-key add -
+    echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+    sudo apt-get update
+    sudo apt-get install -y k6
+    echo -e "${GREEN}✓${NC} k6 installed successfully"
+else
+    echo -e "${GREEN}✓${NC} k6 already installed"
+fi
+k6 version
+
 # Install project dependencies
 print_section "Installing Node.js project dependencies..."
 
@@ -89,6 +105,7 @@ echo "Node.js version: $(node --version)"
 echo "npm version: $(npm --version)"
 echo "Terraform version: $(terraform version -json | grep -o '"terraform_version":"[^"]*' | cut -d'"' -f4)"
 echo "OpenTofu version: $(tofu version -json | grep -o '"terraform_version":"[^"]*' | cut -d'"' -f4)"
+echo "k6 version: $(k6 version)"
 
 if command -v dotnet &> /dev/null; then
     echo ".NET SDK version: $(dotnet --version)"
@@ -101,6 +118,20 @@ echo "- REQ-013: Infrastructure as Code - Terraform and OpenTofu installed"
 echo "- REQ-019: OIDC IdP Implementation - Node.js dependencies installed"
 echo ""
 echo -e "${GREEN}✓${NC} Environment setup for TOFU requirements complete"
+
+# Run validation
+print_section "Running validation checks..."
+if [ -f ".devcontainer/validate.sh" ]; then
+    bash .devcontainer/validate.sh
+    VALIDATION_RESULT=$?
+    if [ $VALIDATION_RESULT -eq 0 ]; then
+        echo -e "${GREEN}✓${NC} All validation checks passed"
+    else
+        echo "⚠ Some validation checks failed - review above"
+    fi
+else
+    echo "Warning: validate.sh not found"
+fi
 
 # Display quick start information
 echo ""

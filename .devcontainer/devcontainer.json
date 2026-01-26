@@ -1,7 +1,7 @@
 {
   "name": "Zero Trust Data Exchange Prototype",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-  
+
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "nodeGypDependencies": true,
@@ -32,6 +32,9 @@
       "username": "vscode",
       "userUid": "1000",
       "userGid": "1000"
+    },
+    "ghcr.io/devcontainers-contrib/features/k6:1": {
+      "version": "latest"
     }
   },
 
@@ -65,14 +68,14 @@
 
   "postCreateCommand": "bash .devcontainer/setup.sh",
 
-  "forwardPorts": [3000, 3001, 3002, 5000, 5001],
+  "forwardPorts": [9001, 9002, 3002, 5000, 5001],
 
   "portsAttributes": {
-    "3000": {
+    "9001": {
       "label": "IDP A",
       "onAutoForward": "notify"
     },
-    "3001": {
+    "9002": {
       "label": "IDP B",
       "onAutoForward": "notify"
     },
