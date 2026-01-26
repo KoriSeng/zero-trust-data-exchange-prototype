@@ -1,4 +1,4 @@
-﻿---
+---
 type: Requirement
 requirement_id: REQ-019
 source: "Other"
@@ -16,10 +16,13 @@ last_reviewed: 2026-01-24
 ---
 
 ## Requirement Statement
+
 The two simulated OIDC identity providers must be implemented in Node.js to enable rapid delivery and controlled behaviour, using either a minimal Express+jose implementation or the `oidc-provider` library.
 
 ## Rationale
+
 The IdP implementation supports the research artefact but is not the research focus; adopting a lightweight Node.js approach reduces delivery risk while still enabling realistic OIDC integration and automated testing.
 
 ## Acceptance Interpretation
+
 Two issuer services exist (Issuer A and Issuer B) implemented in Node.js, expose the required OIDC endpoints and login UI, and can be validated with k6 before being configured as Cognito federation sources.

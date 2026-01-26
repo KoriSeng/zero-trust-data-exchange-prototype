@@ -1,4 +1,4 @@
-﻿---
+---
 type: Assumption
 assumption_id: ASM-007
 status: "Proposed"

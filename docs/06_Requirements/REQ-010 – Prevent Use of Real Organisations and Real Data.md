@@ -1,4 +1,4 @@
-﻿---
+---
 type: Requirement
 requirement_id: REQ-010
 source: "Regulation"
@@ -16,10 +16,13 @@ last_reviewed: 2026-01-24
 ---
 
 ## Requirement Statement
+
 The project artefact and documentation must not use real organisation identifiers and must not use real bio-research datasets or PII.
 
 ## Rationale
+
 The proposal enforces organisational anonymity and synthetic datasets as ethical safeguards.
 
 ## Acceptance Interpretation
+
 All project documentation uses archetypes for organisations, and all demo datasets are demonstrably synthetic.

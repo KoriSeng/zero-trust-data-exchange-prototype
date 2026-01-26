@@ -1,4 +1,4 @@
-﻿---
+---
 type: Requirement
 requirement_id: REQ-016
 source: "Other"
@@ -16,10 +16,13 @@ last_reviewed: 2026-01-24
 ---
 
 ## Requirement Statement
+
 For the academic prototype, the OIDC identity sources should be simulated in a controlled way while still enforcing standard client authentication practices (client_id and client_secret where applicable).
 
 ## Rationale
+
 A controlled IdP simulation reduces external dependencies while still demonstrating correct integration patterns.
 
 ## Acceptance Interpretation
+
 The simulated OIDC providers expose the minimum required endpoints and are integrated using proper client configuration rather than unauthenticated flows.

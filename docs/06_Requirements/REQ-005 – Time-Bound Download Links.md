@@ -1,4 +1,4 @@
-﻿---
+---
 type: Requirement
 requirement_id: REQ-005
 source: "User Feedback"
@@ -16,10 +16,13 @@ related_controls: [CTRL-007, CTRL-008]
 ---
 
 ## Requirement Statement
+
 The platform must provide time-bound, short-lived download access for approved data requests.
 
 ## Rationale
+
 The proposal uses ephemeral delivery to reduce persistence of shared data and minimize exposure windows.
 
 ## Acceptance Interpretation
+
 Download access expires after a configured TTL and cannot be used beyond the expiry time.

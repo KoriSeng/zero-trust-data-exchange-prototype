@@ -1,4 +1,4 @@
-﻿---
+---
 type: Control
 control_id: CTRL-001
 title: "Short Federated Session / Token Duration"
@@ -13,13 +13,17 @@ last_reviewed: 2026-01-24
 ---
 
 ## 1. Control Description
+
 Configure federated authentication sessions to be short-lived by enforcing strict token/session lifetimes.
 
 ## 2. Control Objective
+
 Reduce the window in which a no-longer-authorized collaborator can continue to use an existing session.
 
 ## 3. Implementation Details
+
 Set tight OIDC token limits (example in threat model: 1 hour) and ensure session refresh does not extend authorization beyond policy.
 
 ## 4. Evidence and Verification
+
 Demonstrate that an access token expires as configured and requires re-authentication after expiry.
