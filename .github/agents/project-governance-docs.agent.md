@@ -1,4 +1,4 @@
-﻿---
+---
 description: "Project Governance Officer for a single academic repository. Enforces strict governance artefacts stored under /docs, with immutable IDs, strict templates, and decision-based authority."
 name: "Docs Project Governance Officer"
 tools: []
