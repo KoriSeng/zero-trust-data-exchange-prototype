@@ -138,6 +138,16 @@ module "idp_b" {
   depends_on = [aws_iam_role_policy_attachment.lambda_basic_execution]
 }
 
+module "s3_poc" {
+  source = "./modules/s3_poc"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  allow_account_id = data.aws_caller_identity.current.account_id
+  exempt_user_arn  = data.aws_caller_identity.current.arn
+}
+
 # ============================================================================
 # Outputs
 # ============================================================================
@@ -170,4 +180,19 @@ output "idp_b_function_name" {
 output "idp_b_function_url" {
   description = "Function URL for IDP-B"
   value       = module.idp_b.function_url
+}
+
+output "poc_bucket_name" {
+  description = "POC data bucket name"
+  value       = module.s3_poc.bucket_name
+}
+
+output "poc_bucket_arn" {
+  description = "POC data bucket ARN"
+  value       = module.s3_poc.bucket_arn
+}
+
+output "poc_presigner_role_arn" {
+  description = "IAM role ARN used to generate pre-signed URLs for the POC bucket"
+  value       = module.s3_poc.presigner_role_arn
 }
