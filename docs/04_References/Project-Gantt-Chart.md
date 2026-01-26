@@ -8,20 +8,20 @@ gantt
     dateFormat YYYY-MM-DD
 
     section Discovery
-    MS-001: Discovery and Planning Baseline           :done,    ms001, 2026-01-24, 1d
+    MS-001 Discovery and Planning Baseline           :done, ms001, 2026-01-24, 1d
 
     section Design
-    MS-002: Simulated OIDC IdP Slice                  :done,    ms002, 2026-01-25, 7d
+    MS-002 Simulated OIDC IdP Slice                  :done, ms002, 2026-01-25, 7d
 
     section Implementation
-    MS-003: Implementation of Main Terraform          :active,  ms003, 2026-02-02, 7d
-    MS-004: S3 Policy Configuration for Poison        :         ms004, 2026-02-09, 7d
-    MS-005: Backend and Step Function for Approval    :         ms005, 2026-02-16, 7d
-    MS-006: Audit Logging Implementation              :         ms006, 2026-02-23, 7d
-    MS-007: Backend Security with Cognito             :         ms007, 2026-03-02, 7d
-    MS-008: Request and Approval with OTP Email       :         ms008, 2026-03-09, 7d
-    MS-009: Simple SPA for Login, Request and Approval:         ms009, 2026-03-16, 7d
-    MS-010: GuardDuty and Macie for PII Protection    :         ms010, 2026-03-23, 7d
+    MS-003 Implementation of Main Terraform          :active, ms003, 2026-02-02, 7d
+    MS-004 S3 Policy Configuration for Poison        :ms004, 2026-02-09, 7d
+    MS-005 Backend and Step Function for Approval    :ms005, 2026-02-16, 7d
+    MS-006 Audit Logging Implementation              :ms006, 2026-02-23, 7d
+    MS-007 Backend Security with Cognito             :ms007, 2026-03-02, 7d
+    MS-008 Request and Approval with OTP Email       :ms008, 2026-03-09, 7d
+    MS-009 Simple SPA for Login Request and Approval :ms009, 2026-03-16, 7d
+    MS-010 GuardDuty and Macie for PII Protection    :ms010, 2026-03-23, 7d
 ```
 
 ## Milestone Summary
