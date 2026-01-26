@@ -1,0 +1,7 @@
+# Zero Trust Data Exchange - Terraform Variables
+# Copy this file to terraform.tfvars and fill in your values
+# This file is gitignored and will not be committed
+
+aws_region   = "ap-southeast-1"
+environment  = "dev"
+project_name = "zero-trust-prototype"

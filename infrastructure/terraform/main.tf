@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 
   # Backend configuration for state management
@@ -56,7 +60,88 @@ variable "project_name" {
   default     = "zero-trust-prototype"
 }
 
+# Data source to get current AWS account ID
+data "aws_caller_identity" "current" {}
+
+# ============================================================================
+# IAM Role for Lambda Execution
+# ============================================================================
+
+resource "aws_iam_role" "lambda_exec_role" {
+  name = "${var.project_name}-lambda-exec-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# Attach basic Lambda execution policy
+resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
+  role       = aws_iam_role.lambda_exec_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# ============================================================================
+# OIDC IDP Modules
+# ============================================================================
+
+module "idp_a" {
+  source = "./modules/oidc_idp"
+
+  idp_name             = "a"
+  idp_display_name     = "Issuer A"
+  idp_user_set         = "A"
+  project_name         = var.project_name
+  source_directory     = "${path.module}/../../implementation/idp-a"
+  lambda_exec_role_arn = aws_iam_role.lambda_exec_role.arn
+
+  lambda_runtime     = "nodejs22.x"
+  lambda_timeout     = 30
+  lambda_memory_size = 512
+
+  tags = {
+    Name   = "OIDC-IDP-A"
+    Issuer = "A"
+  }
+
+  depends_on = [aws_iam_role_policy_attachment.lambda_basic_execution]
+}
+
+module "idp_b" {
+  source = "./modules/oidc_idp"
+
+  idp_name             = "b"
+  idp_display_name     = "Issuer B"
+  idp_user_set         = "B"
+  project_name         = var.project_name
+  source_directory     = "${path.module}/../../implementation/idp-b"
+  lambda_exec_role_arn = aws_iam_role.lambda_exec_role.arn
+
+  lambda_runtime     = "nodejs22.x"
+  lambda_timeout     = 30
+  lambda_memory_size = 512
+
+  tags = {
+    Name   = "OIDC-IDP-B"
+    Issuer = "B"
+  }
+
+  depends_on = [aws_iam_role_policy_attachment.lambda_basic_execution]
+}
+
+# ============================================================================
 # Outputs
+# ============================================================================
+
 output "environment" {
   description = "Deployment environment"
   value       = var.environment
@@ -67,10 +152,22 @@ output "region" {
   value       = var.aws_region
 }
 
-# Note: Add actual resource definitions here based on project requirements
-# Examples might include:
-# - AWS Lambda functions for OIDC IdP deployment
-# - Amazon Cognito user pools
-# - S3 buckets for data storage
-# - IAM roles and policies
-# - CloudWatch logs and monitoring
+output "idp_a_function_name" {
+  description = "Name of IDP-A Lambda function"
+  value       = module.idp_a.lambda_function_name
+}
+
+output "idp_a_function_url" {
+  description = "Function URL for IDP-A"
+  value       = module.idp_a.function_url
+}
+
+output "idp_b_function_name" {
+  description = "Name of IDP-B Lambda function"
+  value       = module.idp_b.lambda_function_name
+}
+
+output "idp_b_function_url" {
+  description = "Function URL for IDP-B"
+  value       = module.idp_b.function_url
+}
