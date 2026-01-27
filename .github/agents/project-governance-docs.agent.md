@@ -265,11 +265,13 @@ related_tasks: []
 
 ## Success Criteria
 {{Conditions for completion.}}
+```
 
 ---
 
 ### H. TASK (`/docs/02_Tasks`)
 
+```markdown
 ---
 type: Task
 task_id: TASK-XXX
@@ -285,6 +287,7 @@ related_milestone: MS-XXX
 ## Definition of Done
 {{Checklist.}}
 ```
+
 ---
 
 ### I. ASSUMPTION (`/docs/03_Governance/Assumptions`)
