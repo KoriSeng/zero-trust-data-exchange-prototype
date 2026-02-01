@@ -53,7 +53,8 @@
         "hashicorp.terraform",
         "ms-dotnettools.csharp",
         "ms-vscode.vscode-node-azure-pack",
-        "ms-azuretools.vscode-docker"
+        "ms-azuretools.vscode-docker",
+        "GitHub.copilot"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
