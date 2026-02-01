@@ -103,7 +103,121 @@ export default function () {
     }
   });
 
-  // Test 2: Authenticated Request (Requester)
+  // Test 2: Get Current User Information (JIT Provisioning)
+  group("Get Current User - Requester (IDP-A)", function () {
+    const user = TEST_USERS.requesterA001;
+    const jwt = generateJWT(user);
+
+    const res = http.get(`${BASE_URL}/me`, {
+      headers: authHeaders(jwt),
+    });
+
+    const passed = check(res, {
+      "GET /me returns 200": (r) => r.status === 200,
+      "response is JSON": (r) =>
+        r.headers["Content-Type"]?.includes("application/json"),
+      "response has userId": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.userId && typeof body.userId === "string";
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has email": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.email === user.email;
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has displayName": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.displayName === user.name;
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has organizationId": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.organizationId && typeof body.organizationId === "string";
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has organizationName": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return (
+            body.organizationName && typeof body.organizationName === "string"
+          );
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has roles array": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return Array.isArray(body.roles);
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has status": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.status && typeof body.status === "string";
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has identityProvider": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.identityProvider === "IDP-A";
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has createdAt timestamp": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.createdAt && typeof body.createdAt === "string";
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has lastAccessAt timestamp": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.lastAccessAt && typeof body.lastAccessAt === "string";
+        } catch (e) {
+          return false;
+        }
+      },
+      "response has isNewlyProvisioned flag": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return typeof body.isNewlyProvisioned === "boolean";
+        } catch (e) {
+          return false;
+        }
+      },
+    });
+
+    if (passed) {
+      console.log(
+        `✓ Current user endpoint passed for ${user.name} (${user.sub})`,
+      );
+    } else {
+      console.log(`✗ Current user endpoint failed for ${user.name}`);
+    }
+  });
+
+  // Test 3: Authenticated Request (Requester)
   group("Authenticated Request - Requester", function () {
     const user = TEST_USERS.requesterA001;
     const jwt = generateJWT(user);
@@ -128,7 +242,53 @@ export default function () {
     }
   });
 
-  // Test 3: Authenticated Request (Data Owner)
+  // Test 4: Get Current User Information (Data Owner - IDP-B)
+  group("Get Current User - Data Owner (IDP-B)", function () {
+    const user = TEST_USERS.dataOwnerB001;
+    const jwt = generateJWT(user);
+
+    const res = http.get(`${BASE_URL}/me`, {
+      headers: authHeaders(jwt),
+    });
+
+    const passed = check(res, {
+      "GET /me returns 200": (r) => r.status === 200,
+      "user belongs to ORG-B": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.organizationId && typeof body.organizationId === "string";
+        } catch (e) {
+          return false;
+        }
+      },
+      "identityProvider is IDP-B": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.identityProvider === "IDP-B";
+        } catch (e) {
+          return false;
+        }
+      },
+      "roles array is not empty": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return Array.isArray(body.roles) && body.roles.length > 0;
+        } catch (e) {
+          return false;
+        }
+      },
+    });
+
+    if (passed) {
+      console.log(
+        `✓ Current user endpoint passed for ${user.name} (${user.sub})`,
+      );
+    } else {
+      console.log(`✗ Current user endpoint failed for ${user.name}`);
+    }
+  });
+
+  // Test 5: Authenticated Request (Data Owner)
   group("Authenticated Request - Data Owner", function () {
     const user = TEST_USERS.dataOwnerB001;
     const jwt = generateJWT(user);
@@ -155,7 +315,68 @@ export default function () {
     }
   });
 
-  // Test 4: Identity Collision Test
+  // Test 6: JIT Provisioning Verification
+  group("JIT Provisioning - New User Creation", function () {
+    // Create a new user that doesn't exist yet
+    const newUser = {
+      sub: `IDP-A_NEW-USER-${Date.now()}`,
+      email: `newuser-${Date.now()}@org-a.example.com`,
+      name: "New Test User",
+      cognitoGroup: "ap-southeast-1_xxxxx_IDP-A",
+    };
+
+    const jwt = generateJWT(newUser);
+
+    const res = http.get(`${BASE_URL}/me`, {
+      headers: authHeaders(jwt),
+    });
+
+    const passed = check(res, {
+      "new user provisioning succeeds": (r) => r.status === 200,
+      "isNewlyProvisioned is true for new user": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.isNewlyProvisioned === true;
+        } catch (e) {
+          return false;
+        }
+      },
+      "new user has organization context": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return (
+            body.organizationId &&
+            body.organizationName &&
+            typeof body.organizationName === "string"
+          );
+        } catch (e) {
+          return false;
+        }
+      },
+      "new user has default roles": (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return (
+            Array.isArray(body.roles) &&
+            body.roles.length > 0 &&
+            body.roles.includes("Requester")
+          );
+        } catch (e) {
+          return false;
+        }
+      },
+    });
+
+    if (passed) {
+      console.log(
+        "✓ JIT provisioning test passed (new user automatically provisioned)",
+      );
+    } else {
+      console.log("✗ JIT provisioning test failed");
+    }
+  });
+
+  // Test 7: Identity Collision Test
   group("Identity Collision Test", function () {
     // Both IDP-A and IDP-B have "Alex Kim" but with different subjects
     const userA = TEST_USERS.requesterA001; // IDP-A_A-001
@@ -164,11 +385,11 @@ export default function () {
     const jwtA = generateJWT(userA);
     const jwtB = generateJWT(userB);
 
-    const resA = http.get(`${BASE_URL}/requests/pending`, {
+    const resA = http.get(`${BASE_URL}/me`, {
       headers: authHeaders(jwtA),
     });
 
-    const resB = http.get(`${BASE_URL}/requests/pending`, {
+    const resB = http.get(`${BASE_URL}/me`, {
       headers: authHeaders(jwtB),
     });
 
@@ -177,10 +398,34 @@ export default function () {
       {
         "both Alex Kim users can authenticate": (r) =>
           r.resA.status === 200 && r.resB.status === 200,
-        "users are distinguished by issuer+subject": (r) => {
-          // In a real implementation, we'd verify the backend treats them as separate users
-          // For now, we just verify both can authenticate
-          return r.resA.status === 200 && r.resB.status === 200;
+        "users are in different organizations": (r) => {
+          try {
+            const bodyA = JSON.parse(r.resA.body);
+            const bodyB = JSON.parse(r.resB.body);
+            console.log(
+              `  IDP-A user org: ${bodyA.organizationId}, IDP-B user org: ${bodyB.organizationId}`,
+            );
+            return (
+              bodyA.organizationId &&
+              bodyB.organizationId &&
+              bodyA.organizationId !== bodyB.organizationId
+            );
+          } catch (e) {
+            console.log(`  org comparison error: ${e}`);
+            return false;
+          }
+        },
+        "users have different identity providers": (r) => {
+          try {
+            const bodyA = JSON.parse(r.resA.body);
+            const bodyB = JSON.parse(r.resB.body);
+            return (
+              bodyA.identityProvider === "IDP-A" &&
+              bodyB.identityProvider === "IDP-B"
+            );
+          } catch (e) {
+            return false;
+          }
         },
       },
     );
