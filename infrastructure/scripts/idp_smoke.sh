@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Smoke test for OIDC Lambda IdP implementations
 # Tests that the Lambda Function URLs are accessible and return proper OIDC metadata
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -11,20 +11,47 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+IDP_A_URL=""
+IDP_B_URL=""
+
 # Parse command line arguments
-while getopts "a:b:" opt; do
-  case $opt in
-    a) IDP_A_URL="$OPTARG";;
-    b) IDP_B_URL="$OPTARG";;
-    \?) echo "Invalid option -$OPTARG" >&2; exit 1;;
-  esac
+while getopts "a:b:h" opt; do
+    case $opt in
+        a) IDP_A_URL="$OPTARG";;
+        b) IDP_B_URL="$OPTARG";;
+        h)
+            echo "Usage: $0 [-a <idp_a_url>] [-b <idp_b_url>]"
+            echo "Defaults to terraform outputs idp_a_function_url and idp_b_function_url"
+            exit 0
+            ;;
+        \?) echo "Invalid option -$OPTARG" >&2; exit 1;;
+    esac
 done
+
+terraform_dir="$(cd "$(dirname "$0")/.." && pwd)"
+
+read_tf_output() {
+    local name="$1"
+    local TF_CMD="tofu"
+    if ! command -v tofu >/dev/null 2>&1; then
+        TF_CMD="terraform"
+    fi
+    (cd "$terraform_dir" && $TF_CMD output -raw "$name")
+}
+
+if [[ -z "$IDP_A_URL" ]]; then
+    IDP_A_URL=$(read_tf_output idp_a_function_url 2>/dev/null || true)
+fi
+
+if [[ -z "$IDP_B_URL" ]]; then
+    IDP_B_URL=$(read_tf_output idp_b_function_url 2>/dev/null || true)
+fi
 
 # Validate required parameters
 if [ -z "$IDP_A_URL" ] || [ -z "$IDP_B_URL" ]; then
-    echo -e "${RED}Error: Missing required parameters${NC}"
-    echo "Usage: $0 -a <idp_a_url> -b <idp_b_url>"
-    echo "Example: $0 -a https://abc123.lambda-url.region.amazonaws.com/ -b https://xyz789.lambda-url.region.amazonaws.com/"
+    echo -e "${RED}Error: Missing required IdP URLs${NC}"
+    echo "Usage: $0 [-a <idp_a_url>] [-b <idp_b_url>]"
+    echo "Defaults to terraform outputs idp_a_function_url and idp_b_function_url"
     exit 1
 fi
 

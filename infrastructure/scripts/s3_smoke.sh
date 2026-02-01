@@ -11,7 +11,7 @@ usage() {
 Usage: s3_smoke.sh [-b bucket] [-r role_arn] [-R region]
   -b bucket      S3 bucket name (defaults to terraform output poc_bucket_name)
   -r role_arn    Presigner role ARN (defaults to terraform output poc_presigner_role_arn)
-  -R region      AWS region (defaults to AWS_REGION/AWS_DEFAULT_REGION or terraform output aws_region)
+  -R region      AWS region (defaults to terraform output aws_region, then AWS_REGION/AWS_DEFAULT_REGION)
 Environment overrides:
   SAFE_KEY (default: samples/safe.txt)
   POISON_KEY (default: samples/poisoned.txt)
@@ -20,7 +20,7 @@ EOF
 
 bucket=""
 role_arn=""
-region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+region=""
 while getopts ":b:r:R:h" opt; do
   case "$opt" in
     b) bucket="$OPTARG" ;;
@@ -31,7 +31,7 @@ while getopts ":b:r:R:h" opt; do
   esac
 done
 
-terraform_dir="$(cd "$(dirname "$0")/../terraform" && pwd)"
+terraform_dir="$(cd "$(dirname "$0")/.." && pwd)"
 safe_key="${SAFE_KEY:-samples/safe.txt}"
 poison_key="${POISON_KEY:-samples/poisoned.txt}"
 
@@ -59,6 +59,10 @@ fi
 
 if [[ -z "$region" ]]; then
   region=$(read_tf_output aws_region 2>/dev/null || true)
+fi
+
+if [[ -z "$region" ]]; then
+  region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 fi
 
 if [[ -z "$bucket" || -z "$role_arn" ]]; then
