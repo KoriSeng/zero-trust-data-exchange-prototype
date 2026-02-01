@@ -1,10 +1,15 @@
 {
   "name": "Zero Trust Data Exchange Prototype",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
 
   "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": true,
+      "dockerDashComposeVersion": "v2"
+    },
     "ghcr.io/devcontainers/features/node:1": {
       "nodeGypDependencies": true,
       "version": "lts",
@@ -68,9 +73,9 @@
     }
   },
 
-  "postCreateCommand": "bash .devcontainer/setup.sh && start-mongo.sh",
+  "postCreateCommand": "bash .devcontainer/setup.sh",
 
-  "forwardPorts": [9001, 9002, 3002, 5000, 5001],
+  "forwardPorts": [9001, 9002, 3002, 5000, 5001, 27017, 8081],
 
   "portsAttributes": {
     "9001": {
@@ -91,6 +96,14 @@
     },
     "5001": {
       "label": "C# API (HTTPS)",
+      "onAutoForward": "notify"
+    },
+    "27017": {
+      "label": "MongoDB",
+      "onAutoForward": "ignore"
+    },
+    "8081": {
+      "label": "Mongo Express",
       "onAutoForward": "notify"
     }
   },

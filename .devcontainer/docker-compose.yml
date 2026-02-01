@@ -10,6 +10,11 @@ services:
     environment:
       - NODE_ENV=development
       - AWS_DEFAULT_REGION=us-east-1
+      - MONGODB_URI=mongodb://localhost:27017/zero_trust_db
+    # Ensure the container runs as vscode user
+    user: vscode
+    # Mount docker socket for docker-in-docker
+    # This will be handled by the docker-in-docker feature
 
   mongodb:
     image: mongo:7
@@ -18,8 +23,15 @@ services:
       - "27017:27017"
     volumes:
       - mongodb-data:/data/db
-    environment:
+    environment:c
       MONGO_INITDB_DATABASE: zero_trust_db
+    # Add healthcheck for better reliability
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   mongo-express:
     image: mongo-express:latest
@@ -30,7 +42,8 @@ services:
       ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017
       ME_CONFIG_BASICAUTH: "false"
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
 
 volumes:
   mongodb-data:
