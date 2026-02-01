@@ -118,7 +118,7 @@ test_file "implementation/idp-a/package.json" "IDP A package.json"
 test_file "implementation/idp-b/package.json" "IDP B package.json"
 test_file ".devcontainer/devcontainer.json" "Devcontainer config"
 test_file ".devcontainer/setup.sh" "Setup script"
-test_file "infrastructure/terraform/main.tf" "Terraform config"
+test_file "infrastructure/main.tf" "Terraform config"
 test_file ".env.example" "Environment template"
 
 echo ""
