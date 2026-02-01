@@ -28,6 +28,15 @@
       "name": ".NET Core Attach",
       "type": "coreclr",
       "request": "attach"
+    },
+    {
+      "name": "K6 Backend Smoke Test",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "k6",
+      "args": ["run", "${workspaceFolder}/implementation/k6/backend-smoke.js"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
     }
   ]
 }

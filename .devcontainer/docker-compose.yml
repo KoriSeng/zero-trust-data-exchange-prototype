@@ -11,6 +11,7 @@ services:
       - NODE_ENV=development
       - AWS_DEFAULT_REGION=us-east-1
       - MONGODB_URI=mongodb://localhost:27017/zero_trust_db
+      - AWS_ENDPOINT_URL=http://localstack:4566
     # Ensure the container runs as vscode user
     user: vscode
     # Mount docker socket for docker-in-docker
@@ -44,6 +45,33 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+
+  # LocalStack - AWS services emulation (S3, Step Functions, etc.)
+  localstack:
+    image: localstack/localstack:latest
+    container_name: zero-trust-devcontainer-localstack
+    restart: unless-stopped
+    ports:
+      - "4566:4566" # Main LocalStack endpoint
+    environment:
+      SERVICES: s3,stepfunctions,iam,logs
+      DEBUG: 0
+      DATA_DIR: /tmp/localstack/data
+      DOCKER_HOST: unix:///var/run/docker.sock
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: ap-southeast-1
+    volumes:
+      - "${TMPDIR:-/tmp}/localstack:/tmp/localstack"
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../../implementation/backend/scripts/localstack-init.sh:/docker-entrypoint-initaws.d/init-aws.sh
+    depends_on:
+      - mongodb
+    healthcheck:
+      test: ["CMD", "awslocal", "s3", "ls"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
 
 volumes:
   mongodb-data:

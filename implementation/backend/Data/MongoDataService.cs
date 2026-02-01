@@ -301,4 +301,22 @@ public class MongoDataService : IDataService
             .Limit(limit)
             .ToListAsync();
     }
+
+    public async Task<bool> CreateDataAccessRequestAsync(DataAccessRequest request)
+    {
+        try
+        {
+            await _requestsCollection.InsertOneAsync(request);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    public async Task UpdateDataAccessRequestAsync(DataAccessRequest request)
+    {
+        await _requestsCollection.ReplaceOneAsync(r => r.Id == request.Id, request);
+    }
 }

@@ -1,0 +1,100 @@
+namespace ZeroTrust.Backend.Models;
+
+/// <summary>
+/// Request to create a new data access request
+/// </summary>
+public class CreateDataAccessRequestDto
+{
+    /// <summary>
+    /// Dataset ID being requested
+    /// </summary>
+    public string DatasetId { get; set; } = null!;
+
+    /// <summary>
+    /// Human-readable dataset name
+    /// </summary>
+    public string? DatasetName { get; set; }
+
+    /// <summary>
+    /// S3 object keys requested (e.g., ["data/file1.csv", "data/file2.csv"])
+    /// </summary>
+    public List<string> ObjectKeys { get; set; } = new();
+
+    /// <summary>
+    /// Purpose/justification for access
+    /// </summary>
+    public string Purpose { get; set; } = null!;
+
+    /// <summary>
+    /// Organization that owns the dataset
+    /// </summary>
+    public string DataOwnerOrg { get; set; } = null!;
+
+    /// <summary>
+    /// Optional metadata or additional context
+    /// </summary>
+    public Dictionary<string, string>? Metadata { get; set; }
+}
+
+/// <summary>
+/// Response after creating a data access request
+/// </summary>
+public class DataAccessRequestResponse
+{
+    /// <summary>
+    /// Internal request ID (UUID)
+    /// </summary>
+    public string Id { get; set; } = null!;
+
+    /// <summary>
+    /// Human-readable request identifier (e.g., "REQ-0001")
+    /// </summary>
+    public string RequestId { get; set; } = null!;
+
+    /// <summary>
+    /// Current request status
+    /// </summary>
+    public string Status { get; set; } = null!;
+
+    /// <summary>
+    /// Approval workflow execution ARN (for tracking)
+    /// </summary>
+    public string? WorkflowExecutionArn { get; set; }
+
+    /// <summary>
+    /// Timestamp of request creation
+    /// </summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Message or error details
+    /// </summary>
+    public string? Message { get; set; }
+}
+
+/// <summary>
+/// Request approval payload
+/// </summary>
+public class ApproveRequestDto
+{
+    /// <summary>
+    /// Approval decision
+    /// </summary>
+    public bool Approved { get; set; }
+
+    /// <summary>
+    /// Approval reason/comments
+    /// </summary>
+    public string? Comments { get; set; }
+
+    /// <summary>
+    /// Duration for access (in hours)
+    /// </summary>
+    public int? AccessDurationHours { get; set; }
+
+    /// <summary>
+    /// Optional conditions/restrictions
+    /// </summary>
+    public Dictionary<string, string>? Conditions { get; set; }
+}
+

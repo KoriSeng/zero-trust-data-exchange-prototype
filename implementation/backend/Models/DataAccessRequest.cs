@@ -95,10 +95,10 @@ public class DataAccessRequest
     public DateTime ExpiresAt { get; set; }
 
     /// <summary>
-    /// Cognito sub of approver
+    /// Step Functions workflow execution ARN (for tracking approval process)
     /// </summary>
-    [BsonElement("approved_by")]
-    public string? ApprovedBy { get; set; }
+    [BsonElement("workflow_execution_arn")]
+    public string? WorkflowExecutionArn { get; set; }
 
     /// <summary>
     /// Approval timestamp
