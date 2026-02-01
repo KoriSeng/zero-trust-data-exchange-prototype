@@ -7,6 +7,8 @@
   "scripts": {
     "idp-a:dev": "node implementation/idp-a/server.js",
     "idp-b:dev": "node implementation/idp-b/server.js",
-    "idp:test:smoke": "k6 run implementation/k6/idp-smoke.js"
+    "idp:test:smoke": "k6 run implementation/k6/idp-smoke.js",
+    "backend:dev": "cd implementation/backend && dotnet run",
+    "backend:test:smoke": "k6 run implementation/k6/backend-smoke.js"
   }
 }

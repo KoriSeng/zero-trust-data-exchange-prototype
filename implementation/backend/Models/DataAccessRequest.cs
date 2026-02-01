@@ -12,8 +12,14 @@ public class DataAccessRequest
     /// Request ID (UUID)
     /// </summary>
     [BsonId]
-    public string RequestId { get; set; } = null!;
+    public string Id { get; set; } = null!;
 
+    /// <summary>
+    /// Human-readable request identifier (e.g., "REQ-0001")
+    /// </summary>
+    [BsonElement("request_id")]
+    public string RequestId { get; set; } = null!;
+    
     /// <summary>
     /// Cognito sub of requester
     /// </summary>
