@@ -23,7 +23,7 @@ services:
       - "27017:27017"
     volumes:
       - mongodb-data:/data/db
-    environment:c
+    environment:
       MONGO_INITDB_DATABASE: zero_trust_db
     # Add healthcheck for better reliability
     healthcheck:
