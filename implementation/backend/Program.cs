@@ -4,6 +4,9 @@ using ZeroTrust.Backend.Services;
 using ZeroTrust.Backend.Models;
 using Amazon.S3;
 using Amazon.StepFunctions;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.JsonWebTokens;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,6 +29,83 @@ builder.Services.AddSingleton<IMongoClient>(mongoClient);
 builder.Services.AddSingleton<IDataService>(sp => 
     new MongoDataService(mongoClient, databaseName)
 );
+
+builder.Services.AddScoped<IClaimsTransformation, JitProvisioningClaimsTransformation>();
+System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
+Microsoft.IdentityModel.JsonWebTokens.JsonWebTokenHandler.DefaultMapInboundClaims = false;
+builder.Services.AddAuthentication()
+    .AddJwtBearer(options =>
+    {
+        // No signature validation here - handled at API Gateway
+        var tokenHandler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+        options.MapInboundClaims = false;
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var principal = context.Principal;
+                if (principal == null)
+                {
+                    context.Fail("Missing principal");
+                    return;
+                }
+
+                var dataService = context.HttpContext.RequestServices.GetRequiredService<IDataService>();
+
+                var groups = principal.Claims
+                    .Where(c => c.Type == "cognito:groups")
+                    .Select(c => c.Value)
+                    .ToList();
+
+                if (groups.Count == 1 && groups[0].TrimStart().StartsWith("[") == true)
+                {
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(groups[0]);
+                        if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                        {
+                            groups = doc.RootElement
+                                .EnumerateArray()
+                                .Where(e => e.ValueKind == System.Text.Json.JsonValueKind.String)
+                                .Select(e => e.GetString())
+                                .Where(s => !string.IsNullOrEmpty(s))
+                                .ToList()!;
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore parsing errors and fall back to raw value
+                    }
+                }
+
+                if (groups.Count == 0)
+                {
+                    context.Fail("Missing cognito:groups");
+                    return;
+                }
+
+                var organization = await dataService.GetOrganizationByCognitoGroupAsync(groups[0]);
+                if (organization == null)
+                {
+                    context.Fail("Organization not found for cognito:groups");
+                }
+            }
+        };
+        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = false,
+            ValidateIssuerSigningKey = false,
+            NameClaimType = "sub",
+            SignatureValidator = (token, parameters) => new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token)           
+        };
+    });
+builder.Services.AddAuthorizationBuilder()
+    .AddDefaultPolicy("Authenticated", policy => 
+        policy.RequireAuthenticatedUser()
+        .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
+    );
 
 // JWT and JIT provisioning services
 builder.Services.AddSingleton<IJwtExtractionService, JwtExtractionService>();
@@ -71,90 +151,94 @@ var app = builder.Build();
 // ============ Middleware ============
 app.UseHttpsRedirection();
 
-// ============ Routes ============
+app.UseAuthentication();
+app.UseAuthorization();
 
+// ============ Routes ============
 // Health check
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
-    .WithName("Health");
+    .WithName("Health")
+    .AllowAnonymous();
+
 
 // Get current user information with roles and organization
-// This endpoint demonstrates JIT provisioning - it will auto-provision never-before-seen users
-// and return their organization context immediately
-app.MapGet("/me", async (HttpContext context, IDataService dataService, IJwtExtractionService jwtService, IJitProvisioningService jitService) =>
+// User is automatically JIT provisioned by JitProvisioningClaimsTransformation during authentication
+app.MapGet("/me", async (HttpContext context, IDataService dataService) =>
 {
-    // Extract JWT claims from Authorization header
-    var (success, claims, errorMessage) = jwtService.ExtractClaims(context);
-    if (!success || claims == null)
+    // User is already authenticated and provisioned
+    var userId = context.User.FindFirst("user_id")?.Value;
+    var userEmail = context.User.FindFirst("user_email")?.Value;
+    var userDisplayName = context.User.FindFirst("user_display_name")?.Value;
+    var organizationId = context.User.FindFirst("user_organization")?.Value;
+    var organizationNameFromClaims = context.User.FindFirst("user_organization_name")?.Value;
+    var identityProvider = context.User.FindFirst("identity_provider")?.Value;
+    var status = context.User.FindFirst("user_status")?.Value;
+    var createdAtClaim = context.User.FindFirst("user_created_at")?.Value;
+    var lastAccessAtClaim = context.User.FindFirst("user_last_access_at")?.Value;
+
+    if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(organizationId))
     {
-        return Results.Unauthorized();
+        return Results.BadRequest(new { error = "User not properly provisioned" });
     }
 
-    // Provision user if first login (JIT provisioning)
-    var user = await jitService.ProvisionUserAsync(claims);
-    if (user == null)
+    // Get organization information (fallback if not seeded into claims)
+    string organizationName;
+    if (!string.IsNullOrWhiteSpace(organizationNameFromClaims))
     {
-        return Results.BadRequest(new { error = "Could not provision user from JWT claims" });
+        organizationName = organizationNameFromClaims;
     }
-
-    // Determine if user was just created (for JIT provisioning testing)
-    var isNewlyProvisioned = user.CreatedAt > DateTime.UtcNow.AddSeconds(-5);
-
-    // Get organization information
-    if (string.IsNullOrEmpty(user.OrganizationId))
+    else
     {
-        return Results.BadRequest(new { error = "User has no organization assigned" });
-    }
+        var organization = await dataService.GetOrganizationByIdAsync(organizationId);
+        if (organization == null)
+        {
+            return Results.BadRequest(new { error = "Organization not found for user" });
+        }
 
-    var organization = await dataService.GetOrganizationByIdAsync(user.OrganizationId);
-    if (organization == null)
-    {
-        return Results.BadRequest(new { error = "Organization not found for user" });
+        organizationName = organization.Name;
     }
 
     // Get user's roles
-    var userRoles = await dataService.GetUserRolesAsync(user.Id);
+    var userRoles = await dataService.GetUserRolesAsync(userId);
     var roleNames = userRoles.Select(r => r.Name).ToList();
 
-    // Extract IdP from claims if available
-    var idpFromClaims = jwtService.GetClaimValue(claims, "identity_provider") 
-        ?? user.IdentityProvider 
-        ?? "Unknown";
-
     // Build response
+    var createdAt = DateTime.TryParse(createdAtClaim, out var createdAtParsed)
+        ? createdAtParsed
+        : DateTime.UtcNow;
+    var lastAccessAt = DateTime.TryParse(lastAccessAtClaim, out var lastAccessAtParsed)
+        ? lastAccessAtParsed
+        : DateTime.UtcNow;
     var response = new CurrentUserResponse
     {
-        UserId = user.Id,
-        Email = user.Email ?? "unknown@example.com",
-        DisplayName = user.DisplayName ?? "Unknown User",
-        IdentityProvider = idpFromClaims,
-        OrganizationId = organization.Id,
-        OrganizationName = organization.Name,
+        UserId = userId,
+        Email = userEmail ?? "unknown@example.com",
+        DisplayName = userDisplayName ?? "Unknown User",
+        IdentityProvider = identityProvider ?? "Unknown",
+        OrganizationId = organizationId,
+        OrganizationName = organizationName,
         Roles = roleNames,
-        Status = user.Status.ToString(),
-        CreatedAt = user.CreatedAt,
-        LastAccessAt = user.LastAccessAt,
-        IsNewlyProvisioned = isNewlyProvisioned
+        Status = status ?? "Unknown",
+        CreatedAt = createdAt,
+        LastAccessAt = lastAccessAt
     };
 
     return Results.Ok(response);
 })
-.WithName("GetCurrentUser");
+.WithName("GetCurrentUser")
+.RequireAuthorization("Authenticated");
 
 // Create new data access request
-app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto request, IDataService dataService, IJwtExtractionService jwtService, IJitProvisioningService jitService, IS3Service s3Service, IStepFunctionsService stepFunctionsService, ILogger<Program> logger) =>
+app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto request, IDataService dataService, IS3Service s3Service, IStepFunctionsService stepFunctionsService, ILogger<Program> logger) =>
 {
-    // Extract JWT claims
-    var (success, claims, errorMessage) = jwtService.ExtractClaims(context);
-    if (!success || claims == null)
-    {
-        return Results.Unauthorized();
-    }
+    // User is already authenticated and provisioned
+    var requesterId = context.User.FindFirst("user_id")?.Value;
+    var requesterEmail = context.User.FindFirst("user_email")?.Value;
+    var requesterOrg = context.User.FindFirst("user_organization")?.Value;
 
-    // Provision user if first login
-    var requester = await jitService.ProvisionUserAsync(claims);
-    if (requester == null)
+    if (string.IsNullOrEmpty(requesterId) || string.IsNullOrEmpty(requesterOrg))
     {
-        return Results.BadRequest(new { error = "Could not provision requester" });
+        return Results.BadRequest(new { error = "User not properly provisioned" });
     }
 
     // Validate request
@@ -181,9 +265,9 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
     {
         Id = Guid.NewGuid().ToString(),
         RequestId = $"REQ-{Guid.NewGuid().ToString().Substring(0, 8).ToUpper()}",
-        RequesterId = requester.Id,
-        RequesterEmail = requester.Email ?? "unknown@example.com",
-        RequesterOrg = requester.OrganizationId ?? "UNKNOWN",
+        RequesterId = requesterId,
+        RequesterEmail = requesterEmail ?? "unknown@example.com",
+        RequesterOrg = requesterOrg ?? "UNKNOWN",
         DatasetId = request.DatasetId,
         DatasetName = request.DatasetName,
         ObjectKeys = request.ObjectKeys,
@@ -209,9 +293,9 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
     {
         var workflowContext = new Dictionary<string, object>
         {
-            { "requester_id", requester.Id },
-            { "requester_email", requester.Email ?? "unknown@example.com" },
-            { "requester_org", requester.OrganizationId ?? "UNKNOWN" },
+            { "requester_id", requesterId },
+            { "requester_email", requesterEmail ?? "unknown@example.com" },
+            { "requester_org", requesterOrg ?? "UNKNOWN" },
             { "dataset_id", request.DatasetId },
             { "purpose", request.Purpose },
             { "data_owner_org", request.DataOwnerOrg },
@@ -243,8 +327,8 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
         var metadata = System.Text.Json.JsonSerializer.Serialize(new
         {
             request_id = dataAccessRequest.RequestId,
-            requester_id = requester.Id,
-            requester_email = requester.Email,
+            requester_id = requesterId,
+            requester_email = requesterEmail,
             dataset_id = request.DatasetId,
             purpose = request.Purpose,
             created_at = DateTime.UtcNow,
@@ -270,35 +354,25 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
 
     return Results.Created($"/requests/{dataAccessRequest.Id}", response);
 })
-.WithName("CreateDataAccessRequest");
+.WithName("CreateDataAccessRequest")
+.RequireAuthorization("Authenticated");
 
-// Example endpoint requiring JWT
-app.MapGet("/requests/pending", async (HttpContext context, IDataService dataService, IJwtExtractionService jwtService, IJitProvisioningService jitService) =>
+// Get pending requests for user's organization
+app.MapGet("/requests/pending", async (HttpContext context, IDataService dataService) =>
 {
-    // Extract JWT claims
-    var (success, claims, errorMessage) = jwtService.ExtractClaims(context);
-    if (!success || claims == null)
-    {
-        return Results.Unauthorized();
-    }
+    // User is already authenticated and provisioned
+    var organizationId = context.User.FindFirst("user_organization")?.Value;
 
-    // Provision user if first login
-    var user = await jitService.ProvisionUserAsync(claims);
-    if (user == null)
-    {
-        return Results.BadRequest(new { error = "Could not provision user" });
-    }
-
-    // Get pending requests for user's organization
-    if (string.IsNullOrEmpty(user.OrganizationId))
+    if (string.IsNullOrEmpty(organizationId))
     {
         return Results.BadRequest(new { error = "User has no organization assigned" });
     }
 
-    var pendingRequests = await dataService.GetPendingRequestsByOrgAsync(user.OrganizationId);
+    var pendingRequests = await dataService.GetPendingRequestsByOrgAsync(organizationId);
     
     return Results.Ok(pendingRequests);
 })
-.WithName("GetPendingRequests");
+.WithName("GetPendingRequests")
+.RequireAuthorization("Authenticated");
 
 app.Run();

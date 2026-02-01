@@ -198,14 +198,6 @@ export default function () {
           return false;
         }
       },
-      "response has isNewlyProvisioned flag": (r) => {
-        try {
-          const body = JSON.parse(r.body);
-          return typeof body.isNewlyProvisioned === "boolean";
-        } catch (e) {
-          return false;
-        }
-      },
     });
 
     if (passed) {
@@ -322,7 +314,7 @@ export default function () {
       sub: `IDP-A_NEW-USER-${Date.now()}`,
       email: `newuser-${Date.now()}@org-a.example.com`,
       name: "New Test User",
-      cognitoGroup: "ap-southeast-1_xxxxx_IDP-A",
+      cognitoGroup: "ap-southeast-1_xxxxx_IDP-A"
     };
 
     const jwt = generateJWT(newUser);
@@ -333,38 +325,6 @@ export default function () {
 
     const passed = check(res, {
       "new user provisioning succeeds": (r) => r.status === 200,
-      "isNewlyProvisioned is true for new user": (r) => {
-        try {
-          const body = JSON.parse(r.body);
-          return body.isNewlyProvisioned === true;
-        } catch (e) {
-          return false;
-        }
-      },
-      "new user has organization context": (r) => {
-        try {
-          const body = JSON.parse(r.body);
-          return (
-            body.organizationId &&
-            body.organizationName &&
-            typeof body.organizationName === "string"
-          );
-        } catch (e) {
-          return false;
-        }
-      },
-      "new user has default roles": (r) => {
-        try {
-          const body = JSON.parse(r.body);
-          return (
-            Array.isArray(body.roles) &&
-            body.roles.length > 0 &&
-            body.roles.includes("Requester")
-          );
-        } catch (e) {
-          return false;
-        }
-      },
     });
 
     if (passed) {

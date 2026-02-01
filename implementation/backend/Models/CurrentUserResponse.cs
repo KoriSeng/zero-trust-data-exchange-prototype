@@ -60,9 +60,4 @@ public class CurrentUserResponse
     /// </summary>
     public DateTime LastAccessAt { get; set; }
 
-    /// <summary>
-    /// Whether this is a newly provisioned user (created in this session)
-    /// Useful for smoke tests to validate JIT provisioning worked
-    /// </summary>
-    public bool IsNewlyProvisioned { get; set; }
 }

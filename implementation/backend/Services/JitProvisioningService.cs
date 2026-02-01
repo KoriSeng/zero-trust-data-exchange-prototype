@@ -152,6 +152,11 @@ public class JitProvisioningService : IJitProvisioningService
                         }
                     }
                 }
+                else if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    var groupString = jsonElement.GetString();
+                    AddGroupsFromString(groups, groupString);
+                }
             }
             // If it's already a list, use it directly
             else if (groupsValue is List<string> groupsList)
@@ -163,8 +168,49 @@ public class JitProvisioningService : IJitProvisioningService
             {
                 groups.AddRange(groupsArray.Where(g => !string.IsNullOrEmpty(g)));
             }
+            // If it's a single string, treat as single group or JSON array string
+            else if (groupsValue is string groupString)
+            {
+                AddGroupsFromString(groups, groupString);
+            }
         }
 
         return groups;
+    }
+
+    private static void AddGroupsFromString(List<string> groups, string? groupString)
+    {
+        if (string.IsNullOrWhiteSpace(groupString))
+        {
+            return;
+        }
+
+        // Handle JSON array string like "[\"group1\",\"group2\"]"
+        if (groupString.TrimStart().StartsWith("["))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(groupString);
+                if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var item in doc.RootElement.EnumerateArray())
+                    {
+                        var group = item.GetString();
+                        if (!string.IsNullOrEmpty(group))
+                        {
+                            groups.Add(group);
+                        }
+                    }
+
+                    return;
+                }
+            }
+            catch
+            {
+                // Ignore parsing errors and fall through to treat as single group string
+            }
+        }
+
+        groups.Add(groupString);
     }
 }
