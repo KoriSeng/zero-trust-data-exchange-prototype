@@ -1,74 +1,115 @@
-# Infrastructure README
+# Zero Trust Data Exchange - Terraform Configuration
 
-This directory contains the Infrastructure as Code (IaC) configuration for the Zero Trust Data Exchange prototype, supporting **REQ-013** (Infrastructure as Code with Terraform).
+This directory contains the Terraform/OpenTofu configuration for deploying the Zero Trust Data Exchange prototype infrastructure on AWS.
 
-## Overview
+## Architecture Overview
 
-The infrastructure is managed using **Terraform** and **OpenTofu**, providing reproducible and version-controlled infrastructure provisioning.
+The infrastructure deploys two OIDC Identity Providers as AWS Lambda functions with public HTTPS endpoints:
 
-## Prerequisites
+```
+IDPs (Lambda Functions with Function URLs)
+├── IDP-A (nodejs-express)
+└── IDP-B (nodejs-express)
 
-The following tools are pre-installed in the devcontainer:
-
-- Terraform (latest)
-- OpenTofu (TOFU)
-- AWS CLI
-- tflint (Terraform linting)
-- terragrunt (optional)
+Shared Resources:
+├── IAM Role (Lambda execution)
+└── CloudWatch Logs
+```
 
 ## Directory Structure
 
 ```
 infrastructure/
-├── terraform/           # Terraform/OpenTofu configuration files
-│   ├── main.tf         # Main configuration and provider setup
-│   ├── variables.tf    # Input variables (to be created)
-│   ├── outputs.tf      # Output values (to be created)
-│   └── README.md       # This file
-└── .terraform.d/       # Terraform plugin cache (gitignored)
+├── main.tf                # Main configuration (provider, root resources)
+├── variables.tf           # Input variables
+├── outputs.tf             # Output values
+├── README.md              # This file
+└── modules/
+    └── oidc_idp/          # Reusable OIDC IDP module
+        ├── main.tf        # Module resources
+        ├── variables.tf   # Module input variables
+        ├── outputs.tf     # Module output values
+        └── README.md      # Module documentation
 ```
 
-## Getting Started
+## Prerequisites
+
+### Tools Required
+
+- Terraform >= 1.0 or OpenTofu
+- AWS CLI
+- AWS account with appropriate permissions
+
+### AWS Permissions Required
+
+- Lambda functions (create, update, delete)
+- IAM roles and policies (create, attach)
+- CloudWatch Logs (create log groups)
+- Lambda Layer operations
+
+### Node.js Dependencies
+
+Before deploying, ensure the IDP source directories have `node_modules` installed:
+
+```bash
+cd ../implementation/idp-a
+npm install
+
+cd ../implementation/idp-b
+npm install
+```
+
+## Quick Start
 
 ### Initialize Terraform
 
 ```bash
-cd infrastructure/terraform
+cd infrastructure
+
+# Using Terraform
 terraform init
-```
 
-### Initialize OpenTofu (TOFU Compliance)
-
-```bash
-cd infrastructure/terraform
+# Using OpenTofu (TOFU compliance)
 tofu init
 ```
 
-### Plan Infrastructure Changes
+### Plan Infrastructure
 
 ```bash
 # Using Terraform
-terraform plan
+terraform plan -out=tfplan
 
 # Using OpenTofu
-tofu plan
+tofu plan -out=tfplan
 ```
 
-### Apply Infrastructure Changes
+### Apply Configuration
 
 ```bash
 # Using Terraform
-terraform apply
+terraform apply tfplan
 
 # Using OpenTofu
-tofu apply
+tofu apply tfplan
 ```
 
-## Configuration
+### View Outputs
 
-### Environment Variables
+After successful deployment, retrieve the Function URLs:
 
-Set the following environment variables or create a `terraform.tfvars` file:
+```bash
+terraform output
+
+# Or get specific values:
+terraform output idp_a_function_url
+terraform output idp_b_function_url
+```
+
+## Configuration Variables
+
+### Root Variables
+
+Create a `terraform.tfvars` file or pass via command line:
 
 ```hcl
 aws_region   = "us-east-1"
@@ -76,44 +117,68 @@ environment  = "dev"
 project_name = "zero-trust-prototype"
 ```
 
-**Important:** Never commit `terraform.tfvars` files containing sensitive data. Use `terraform.tfvars.example` for templates.
+**Never commit `terraform.tfvars` with sensitive data!**
 
-### AWS Credentials
-
-Ensure your AWS credentials are configured:
+### Environment Variables (AWS)
 
 ```bash
-# Via environment variables
-export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_ACCESS_KEY_ID="your-key-id"
 export AWS_SECRET_ACCESS_KEY="your-secret-key"
 export AWS_DEFAULT_REGION="us-east-1"
-
-# Or via AWS CLI
-aws configure
 ```
 
-In the devcontainer, your local `~/.aws` directory is mounted automatically.
+## Module Usage
+
+The `oidc_idp` module is reusable for deploying additional IDPs. Example:
+
+```hcl
+module "idp_c" {
+  source = "./modules/oidc_idp"
+
+  idp_name             = "c"
+  idp_display_name     = "Issuer C"
+  idp_user_set         = "C"
+  project_name         = var.project_name
+  source_directory     = "${path.module}/../../implementation/idp-c"
+  lambda_exec_role_arn = aws_iam_role.lambda_exec_role.arn
+
+  lambda_runtime     = "nodejs.20.x"
+  lambda_timeout     = 30
+  lambda_memory_size = 512
+
+  tags = {
+    Name   = "OIDC-IDP-C"
+    Issuer = "C"
+  }
+
+  depends_on = [aws_iam_role_policy_attachment.lambda_basic_execution]
+}
+```
+
+For detailed module documentation, see [modules/oidc_idp/README.md](modules/oidc_idp/README.md).
+
+## Outputs
+
+After deployment, the following outputs are available:
+
+| Output                | Description                    |
+| --------------------- | ------------------------------ |
+| `environment`         | Deployment environment         |
+| `region`              | AWS region                     |
+| `idp_a_function_name` | Lambda function name for IDP-A |
+| `idp_a_function_url`  | Public HTTPS URL for IDP-A     |
+| `idp_b_function_name` | Lambda function name for IDP-B |
+| `idp_b_function_url`  | Public HTTPS URL for IDP-B     |
 
 ## State Management
 
 ### Local State (Default)
 
-By default, Terraform stores state locally in `terraform.tfstate`. This is suitable for:
-- Individual development
-- Testing and prototyping
-- Academic projects
+Terraform state is stored locally in `terraform.tfstate`. This is suitable for development but **not recommended for production**.
 
-**Note:** Local state files are excluded from version control via `.gitignore`.
+### Remote State (S3)
 
-### Remote State (Production)
-
-For team collaboration or production use, configure remote state:
-
-1. Uncomment the backend configuration in `main.tf`
-2. Create an S3 bucket and DynamoDB table for state locking
-3. Run `terraform init -migrate-state`
-
-Example backend configuration:
+To enable remote state, uncomment and configure the backend in `main.tf`:
 
 ```hcl
 backend "s3" {
@@ -125,130 +190,97 @@ backend "s3" {
 }
 ```
 
-## TOFU Compliance
-
-This infrastructure setup supports the following requirements:
-
-### REQ-013: Infrastructure as Code with Terraform
-- All infrastructure is defined in version-controlled Terraform files
-- Environments can be created, updated, and reproduced reliably
-- Configuration drift is prevented through declarative IaC
-
-### REQ-004: Administrative Onboarding Check
-- Infrastructure supports administrative verification workflows
-- IAM policies and roles can be configured for administrative access controls
-
-### REQ-019: OIDC IdP Implementation
-- Infrastructure can provision Lambda functions for OIDC IdPs
-- Supports deployment of IssuerA and IssuerB implementations
-
-## Security Best Practices
-
-1. **Never commit secrets** - Use AWS Secrets Manager, SSM Parameter Store, or environment variables
-2. **Enable encryption** - All S3 buckets, databases, and state files should be encrypted
-3. **Least privilege** - IAM roles and policies should follow the principle of least privilege
-4. **State file security** - Protect state files as they may contain sensitive data
-5. **Review plans** - Always review `terraform plan` output before applying changes
-
-## Linting and Validation
-
-### Terraform Validation
+Then reinitialize:
 
 ```bash
-terraform fmt      # Format files
-terraform validate # Validate configuration
-```
-
-### TFLint
-
-```bash
-tflint             # Lint Terraform files
-```
-
-## Common Commands
-
-```bash
-# Initialize
 terraform init
+```
 
-# Format code
-terraform fmt -recursive
+## Maintenance
 
-# Validate configuration
-terraform validate
+### Updating Infrastructure
 
-# Plan changes
-terraform plan -out=tfplan
+To update any configuration:
 
-# Apply changes
-terraform apply tfplan
+1. Modify the `.tf` files
+2. Run `terraform plan` to review changes
+3. Run `terraform apply` to deploy changes
 
-# Show current state
-terraform show
+### Destroying Infrastructure
 
-# List resources
-terraform state list
+⚠️ **Warning**: This will delete all deployed resources.
 
-# Destroy infrastructure
+```bash
 terraform destroy
 ```
 
-## OpenTofu Commands
+## Validation and Linting
 
-OpenTofu uses the same commands as Terraform, just replace `terraform` with `tofu`:
+### Validate Configuration
 
 ```bash
-tofu init
-tofu plan
-tofu apply
+terraform validate
+```
+
+### Format Code
+
+```bash
+terraform fmt -recursive
+```
+
+### Lint with TFLint
+
+```bash
+tflint --init
+tflint
 ```
 
 ## Troubleshooting
 
-### Provider Plugin Issues
+### Archive Provider Issues
+
+If you encounter issues with the `archive` provider:
 
 ```bash
-# Clear plugin cache
-rm -rf .terraform
-terraform init
+terraform init -upgrade
 ```
 
-### State Lock Issues
+### Lambda Layer Dependencies
+
+Ensure `node_modules` is properly installed in IDP source directories:
 
 ```bash
-# Force unlock (use with caution)
-terraform force-unlock <LOCK_ID>
+cd ../../implementation/idp-a
+npm install --production  # Only production dependencies
 ```
 
-### Version Conflicts
+### Permission Denied Errors
+
+Verify AWS credentials are properly configured:
 
 ```bash
-# Check Terraform version
-terraform version
-
-# Check OpenTofu version
-tofu version
+aws sts get-caller-identity
 ```
 
-## Contributing
+## Next Steps
 
-When adding new infrastructure:
+After deploying the IDPs:
 
-1. Follow existing naming conventions
-2. Add appropriate tags to all resources
-3. Document variables and outputs
-4. Test changes in a dev environment first
-5. Include requirement traceability in comments (e.g., `# REQ-013`)
+1. Test the OIDC endpoints using the Function URLs
+2. Configure AWS Cognito to use these IDPs as identity providers
+3. Set up S3 buckets for data storage
+4. Configure API Gateway and backend Lambda functions
 
-## Resources
+## References
 
-- [Terraform Documentation](https://www.terraform.io/docs)
-- [OpenTofu Documentation](https://opentofu.org/docs)
-- [AWS Provider Documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [Terraform Best Practices](https://www.terraform-best-practices.com/)
+- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+- [AWS Lambda Function URLs](https://docs.aws.amazon.com/lambda/latest/dg/lambda-urls.html)
+- [OpenTofu Documentation](https://opentofu.org/)
 
-## Project Requirement Traceability
+## Support
 
-- **REQ-013**: Infrastructure as Code with Terraform - Implemented via this directory
-- **REQ-004**: Administrative Onboarding Check - Supported via IAM and access controls
-- **REQ-019**: OIDC IdP Implementation - Lambda deployment configuration (to be added)
+For issues related to:
+
+- **Terraform syntax**: See [Terraform Documentation](https://www.terraform.io/docs)
+- **AWS resources**: See [AWS CLI Documentation](https://docs.aws.amazon.com/cli/)
+- **Project specifics**: See [../README.md](../README.md)

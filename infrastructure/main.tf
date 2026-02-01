@@ -101,7 +101,7 @@ module "idp_a" {
   idp_display_name     = "Issuer A"
   idp_user_set         = "A"
   project_name         = var.project_name
-  source_directory     = "${path.module}/../../implementation/idp-a"
+  source_directory     = "${path.module}/../implementation/idp-a"
   lambda_exec_role_arn = aws_iam_role.lambda_exec_role.arn
 
   lambda_runtime     = "nodejs22.x"
@@ -123,7 +123,7 @@ module "idp_b" {
   idp_display_name     = "Issuer B"
   idp_user_set         = "B"
   project_name         = var.project_name
-  source_directory     = "${path.module}/../../implementation/idp-b"
+  source_directory     = "${path.module}/../implementation/idp-b"
   lambda_exec_role_arn = aws_iam_role.lambda_exec_role.arn
 
   lambda_runtime     = "nodejs22.x"
