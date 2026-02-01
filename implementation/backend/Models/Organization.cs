@@ -1,6 +1,7 @@
-using MongoDB.Bson.Serialization.Attributes;
-
 namespace ZeroTrust.Backend.Models;
+
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
 
 /// <summary>
 /// Represents an organization with Cognito group mapping
@@ -12,6 +13,7 @@ public class Organization
     /// Organization ID (e.g., "ORG-A", "ORG-B")
     /// </summary>
     [BsonId]
+    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = null!;
 
     /// <summary>

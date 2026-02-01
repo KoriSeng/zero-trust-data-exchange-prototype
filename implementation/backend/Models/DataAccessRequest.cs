@@ -1,5 +1,6 @@
 namespace ZeroTrust.Backend.Models;
 
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
 /// <summary>
@@ -12,6 +13,7 @@ public class DataAccessRequest
     /// Request ID (UUID)
     /// </summary>
     [BsonId]
+    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = null!;
 
     /// <summary>

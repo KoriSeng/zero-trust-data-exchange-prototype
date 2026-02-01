@@ -1,6 +1,7 @@
-using MongoDB.Bson.Serialization.Attributes;
-
 namespace ZeroTrust.Backend.Models;
+
+using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson;
 
 /// <summary>
 /// User agreement with versioning for audit trail
@@ -11,7 +12,8 @@ public class UserAgreement
     /// <summary>
     /// Agreement ID (UUID)
     /// </summary>
-    [BsonElement("agreement_id")]
+    [BsonId]
+    [BsonRepresentation(BsonType.String)]   
     public string AgreementId { get; set; } = null!;
 
     /// <summary>

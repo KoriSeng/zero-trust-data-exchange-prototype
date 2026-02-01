@@ -1,6 +1,7 @@
-using MongoDB.Bson.Serialization.Attributes;
-
 namespace ZeroTrust.Backend.Models;
+
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
 
 /// <summary>
 /// Represents a user authenticated via Cognito with federated identity
@@ -12,6 +13,7 @@ public class User
     /// Internal user ID (UUID)
     /// </summary>
     [BsonId]
+    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = null!;
 
     /// <summary>

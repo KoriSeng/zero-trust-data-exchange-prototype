@@ -103,30 +103,7 @@ export default function () {
     }
   });
 
-  // Test 2: Initialize Database (dev endpoint)
-  group("Database Initialization", function () {
-    const res = http.post(`${BASE_URL}/dev/initialize`);
-
-    const passed = check(res, {
-      "initialize endpoint returns 200": (r) => r.status === 200,
-      "response contains success message": (r) => {
-        try {
-          const body = JSON.parse(r.body);
-          return body.message?.includes("initialized");
-        } catch (e) {
-          return false;
-        }
-      },
-    });
-
-    if (passed) {
-      console.log("✓ Database initialization passed");
-    } else {
-      console.log("✗ Database initialization failed");
-    }
-  });
-
-  // Test 3: Authenticated Request (Requester)
+  // Test 2: Authenticated Request (Requester)
   group("Authenticated Request - Requester", function () {
     const user = TEST_USERS.requesterA001;
     const jwt = generateJWT(user);
@@ -151,7 +128,7 @@ export default function () {
     }
   });
 
-  // Test 4: Authenticated Request (Data Owner)
+  // Test 3: Authenticated Request (Data Owner)
   group("Authenticated Request - Data Owner", function () {
     const user = TEST_USERS.dataOwnerB001;
     const jwt = generateJWT(user);
@@ -178,7 +155,7 @@ export default function () {
     }
   });
 
-  // Test 5: Identity Collision Test
+  // Test 4: Identity Collision Test
   group("Identity Collision Test", function () {
     // Both IDP-A and IDP-B have "Alex Kim" but with different subjects
     const userA = TEST_USERS.requesterA001; // IDP-A_A-001

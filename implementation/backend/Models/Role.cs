@@ -1,6 +1,7 @@
-using MongoDB.Bson.Serialization.Attributes;
-
 namespace ZeroTrust.Backend.Models;
+
+using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson;
 
 /// <summary>
 /// Represents a role in the system (Requester, DataOwner, Admin, Auditor)
@@ -12,6 +13,7 @@ public class Role
     /// Role ID (UUID)
     /// </summary>
     [BsonId]
+    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = null!;
 
     /// <summary>

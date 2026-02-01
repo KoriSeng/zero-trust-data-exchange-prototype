@@ -1,6 +1,7 @@
-using MongoDB.Bson.Serialization.Attributes;
-
 namespace ZeroTrust.Backend.Models;
+
+using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson;
 
 /// <summary>
 /// Maps users to roles (many-to-many junction)
@@ -12,6 +13,7 @@ public class UserRole
     /// Composite ID: userId#roleId
     /// </summary>
     [BsonId]
+    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = null!;
 
     /// <summary>
