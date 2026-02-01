@@ -1,6 +1,8 @@
 {
   "name": "Zero Trust Data Exchange Prototype",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
 
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
@@ -66,7 +68,7 @@
     }
   },
 
-  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postCreateCommand": "bash .devcontainer/setup.sh && start-mongo.sh",
 
   "forwardPorts": [9001, 9002, 3002, 5000, 5001],
 

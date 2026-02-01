@@ -1,0 +1,39 @@
+# Build results
+bin/
+obj/
+out/
+*.dll
+*.exe
+*.pdb
+*.so
+*.dylib
+
+# IDE
+.vs/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.user
+*.userprefs
+*.suo
+
+# Dependencies
+packages/
+node_modules/
+
+# Configuration
+appsettings.Development.json
+appsettings.Production.json
+local.settings.json
+
+# AWS
+.aws/
+
+# MongoDB
+data/
+
+# Logs
+logs/
+*.log
