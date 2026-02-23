@@ -29,6 +29,7 @@ public interface IDataService
     // Organization operations
     Task<Organization?> GetOrganizationByIdAsync(string organizationId);
     Task<Organization?> GetOrganizationByCognitoGroupAsync(string cognitoGroupName);
+    Task<Organization?> GetOrganizationByShortNameAsync(string shortName);
     Task<List<Organization>> GetAllOrganizationsAsync();
     Task PutOrganizationAsync(Organization organization);
     Task UpdateOrganizationAsync(Organization organization);
@@ -47,4 +48,9 @@ public interface IDataService
     Task PutRequestAsync(DataAccessRequest request);
     Task UpdateDataAccessRequestAsync(DataAccessRequest request);
     Task<List<DataAccessRequest>> GetRequestsByStatusAsync(RequestStatus status, int limit = 100);
+
+    // AuditEvent operations
+    Task CreateAuditEventAsync(AuditEvent auditEvent);
+    Task<List<AuditEvent>> GetAuditEventsAsync(int limit = 100);
+    Task<List<AuditEvent>> GetAuditEventsByRequestAsync(string requestId, int limit = 100);
 }

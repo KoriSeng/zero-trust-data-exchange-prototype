@@ -3,7 +3,7 @@ type: Task
 task_id: TASK-013
 title: "Implement Backend API Lambda Functions"
 owner: STK-001
-status: "Not Started"
+status: "Completed"
 related_milestone: MS-005
 ---
 

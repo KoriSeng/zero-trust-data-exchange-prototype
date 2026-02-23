@@ -145,11 +145,19 @@ builder.Services.AddLogging(config =>
     config.AddDebug();
 });
 
+// Serialize enums as strings in all JSON responses
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(
+        new System.Text.Json.Serialization.JsonStringEnumConverter()
+    );
+});
+
 // ============ Build App ============
 var app = builder.Build();
 
 // ============ Middleware ============
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -252,12 +260,30 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
         return Results.BadRequest(new { error = "At least one object key is required" });
     }
 
-    // Check if objects exist in S3
+    if (string.IsNullOrWhiteSpace(request.DataOwnerOrg))
+    {
+        return Results.BadRequest(new { error = "DataOwnerOrg is required" });
+    }
+
+    // Resolve DataOwnerOrg short name (e.g. "ORG-B") to the internal org ID
+    var dataOwnerOrg = await dataService.GetOrganizationByShortNameAsync(request.DataOwnerOrg);
+    if (dataOwnerOrg == null)
+    {
+        return Results.BadRequest(new { error = $"Organization '{request.DataOwnerOrg}' not found" });
+    }
+
+    // Check if objects exist in S3 — warn only; the hard check occurs at redemption
+    // when pre-signed URLs are generated. In a local/test environment S3 may not be
+    // seeded yet and we do not want to block submission.
     var dataBucket = context.RequestServices.GetRequiredService<IConfiguration>()["AWS:S3:DataBucket"] ?? "zero-trust-data";
     var objectsExist = await s3Service.ObjectsExistAsync(dataBucket, request.ObjectKeys);
     if (!objectsExist)
     {
-        return Results.BadRequest(new { error = "One or more requested objects do not exist" });
+        logger.LogWarning(
+            "Submitted request for objects that were not found in S3 bucket {bucket}: {keys}",
+            dataBucket,
+            string.Join(", ", request.ObjectKeys)
+        );
     }
 
     // Create request in database
@@ -272,7 +298,7 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
         DatasetName = request.DatasetName,
         ObjectKeys = request.ObjectKeys,
         Purpose = request.Purpose,
-        DataOwnerOrg = request.DataOwnerOrg,
+        DataOwnerOrg = dataOwnerOrg.Id,
         Status = RequestStatus.Submitted,
         CreatedAt = DateTime.UtcNow,
         UpdatedAt = DateTime.UtcNow,
@@ -298,7 +324,7 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
             { "requester_org", requesterOrg ?? "UNKNOWN" },
             { "dataset_id", request.DatasetId },
             { "purpose", request.Purpose },
-            { "data_owner_org", request.DataOwnerOrg },
+            { "data_owner_org", dataOwnerOrg.Id },
             { "object_keys", request.ObjectKeys }
         };
 
@@ -342,6 +368,18 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
         logger.LogWarning(ex, "Could not upload request metadata for {requestId}", dataAccessRequest.RequestId);
     }
 
+    // Emit audit event
+    await dataService.CreateAuditEventAsync(new AuditEvent
+    {
+        EventType = "REQUEST_SUBMITTED",
+        ActorId = requesterId,
+        OrganizationId = requesterOrg,
+        RequestId = dataAccessRequest.RequestId,
+        DatasetId = request.DatasetId,
+        Description = $"Data access request {dataAccessRequest.RequestId} submitted for dataset {request.DatasetId}",
+        Result = AuditEventResult.Success
+    });
+
     var response = new DataAccessRequestResponse
     {
         Id = dataAccessRequest.Id,
@@ -373,6 +411,312 @@ app.MapGet("/requests/pending", async (HttpContext context, IDataService dataSer
     return Results.Ok(pendingRequests);
 })
 .WithName("GetPendingRequests")
+.RequireAuthorization("Authenticated");
+
+// Get current user's own requests
+app.MapGet("/requests/my", async (HttpContext context, IDataService dataService) =>
+{
+    var requesterId = context.User.FindFirst("user_id")?.Value;
+
+    if (string.IsNullOrEmpty(requesterId))
+    {
+        return Results.BadRequest(new { error = "User not properly provisioned" });
+    }
+
+    var requests = await dataService.GetRequestsByRequesterAsync(requesterId);
+    return Results.Ok(requests);
+})
+.WithName("GetMyRequests")
+.RequireAuthorization("Authenticated");
+
+// Get a specific request by internal UUID
+app.MapGet("/requests/{id}", async (string id, HttpContext context, IDataService dataService) =>
+{
+    var callerId = context.User.FindFirst("user_id")?.Value;
+    var callerOrg = context.User.FindFirst("user_organization")?.Value;
+
+    var request = await dataService.GetRequestByIdAsync(id);
+    if (request == null)
+    {
+        return Results.NotFound(new { error = "Request not found" });
+    }
+
+    // Only the requester or a member of the data owner org may view the request
+    if (request.RequesterId != callerId && request.DataOwnerOrg != callerOrg)
+    {
+        return Results.Forbid();
+    }
+
+    return Results.Ok(request);
+})
+.WithName("GetRequestById")
+.RequireAuthorization("Authenticated");
+
+// Get audit trail for a specific request
+app.MapGet("/requests/{id}/audit", async (string id, HttpContext context, IDataService dataService) =>
+{
+    var callerId = context.User.FindFirst("user_id")?.Value;
+    var callerOrg = context.User.FindFirst("user_organization")?.Value;
+
+    var request = await dataService.GetRequestByIdAsync(id);
+    if (request == null)
+    {
+        return Results.NotFound(new { error = "Request not found" });
+    }
+
+    // Only the requester or a member of the data owner org may view the audit trail
+    if (request.RequesterId != callerId && request.DataOwnerOrg != callerOrg)
+    {
+        return Results.Forbid();
+    }
+
+    var events = await dataService.GetAuditEventsByRequestAsync(request.RequestId);
+    return Results.Ok(events);
+})
+.WithName("GetRequestAudit")
+.RequireAuthorization("Authenticated");
+
+// Approve a pending request (data owner only) — generates an OTP for the requester
+app.MapPost("/requests/{id}/approve", async (string id, ApproveRequestDto dto, HttpContext context, IDataService dataService, ILogger<Program> logger) =>
+{
+    var approverId = context.User.FindFirst("user_id")?.Value;
+    var approverOrg = context.User.FindFirst("user_organization")?.Value;
+
+    if (string.IsNullOrEmpty(approverId) || string.IsNullOrEmpty(approverOrg))
+    {
+        return Results.BadRequest(new { error = "User not properly provisioned" });
+    }
+
+    var request = await dataService.GetRequestByIdAsync(id);
+    if (request == null)
+    {
+        return Results.NotFound(new { error = "Request not found" });
+    }
+
+    // Only the data owner org may approve
+    if (request.DataOwnerOrg != approverOrg)
+    {
+        return Results.Forbid();
+    }
+
+    if (request.Status != RequestStatus.PendingOwnerApproval)
+    {
+        return Results.BadRequest(new { error = $"Request is not awaiting approval (current status: {request.Status})" });
+    }
+
+    // Generate a 6-digit OTP using a cryptographically secure random number
+    var rawOtp = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100000, 999999).ToString();
+    var otpHash = Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawOtp))
+    );
+    var otpExpiry = DateTime.UtcNow.AddMinutes(15);
+
+    request.Status = RequestStatus.OtpSent;
+    request.ApprovedAt = DateTime.UtcNow;
+    request.OtpToken = otpHash;
+    request.OtpExpiresAt = otpExpiry;
+    request.UpdatedAt = DateTime.UtcNow;
+
+    await dataService.UpdateDataAccessRequestAsync(request);
+
+    await dataService.CreateAuditEventAsync(new AuditEvent
+    {
+        EventType = "REQUEST_APPROVED",
+        ActorId = approverId,
+        OrganizationId = approverOrg,
+        RequestId = request.RequestId,
+        DatasetId = request.DatasetId,
+        Description = $"Request {request.RequestId} approved by {approverId}; OTP issued",
+        Result = AuditEventResult.Success
+    });
+
+    logger.LogInformation("Request {requestId} approved by {approverId}; OTP expires at {expiry}",
+        request.RequestId, approverId, otpExpiry);
+
+    return Results.Ok(new
+    {
+        requestId = request.RequestId,
+        status = request.Status.ToString(),
+        otp = rawOtp,               // In production this would be e-mailed, not returned here
+        otpExpiresAt = otpExpiry,
+        message = "Request approved. Share the OTP with the requester via secure channel."
+    });
+})
+.WithName("ApproveRequest")
+.RequireAuthorization("Authenticated");
+
+// Deny a pending request (data owner only)
+app.MapPost("/requests/{id}/deny", async (string id, DenyRequestDto dto, HttpContext context, IDataService dataService, ILogger<Program> logger) =>
+{
+    var denierId = context.User.FindFirst("user_id")?.Value;
+    var denierOrg = context.User.FindFirst("user_organization")?.Value;
+
+    if (string.IsNullOrEmpty(denierId) || string.IsNullOrEmpty(denierOrg))
+    {
+        return Results.BadRequest(new { error = "User not properly provisioned" });
+    }
+
+    var request = await dataService.GetRequestByIdAsync(id);
+    if (request == null)
+    {
+        return Results.NotFound(new { error = "Request not found" });
+    }
+
+    if (request.DataOwnerOrg != denierOrg)
+    {
+        return Results.Forbid();
+    }
+
+    if (request.Status != RequestStatus.PendingOwnerApproval)
+    {
+        return Results.BadRequest(new { error = $"Request is not awaiting approval (current status: {request.Status})" });
+    }
+
+    request.Status = RequestStatus.Denied;
+    request.DeniedBy = denierId;
+    request.DeniedAt = DateTime.UtcNow;
+    request.DenialReason = dto.Reason;
+    request.UpdatedAt = DateTime.UtcNow;
+
+    await dataService.UpdateDataAccessRequestAsync(request);
+
+    await dataService.CreateAuditEventAsync(new AuditEvent
+    {
+        EventType = "REQUEST_DENIED",
+        ActorId = denierId,
+        OrganizationId = denierOrg,
+        RequestId = request.RequestId,
+        DatasetId = request.DatasetId,
+        Description = $"Request {request.RequestId} denied by {denierId}: {dto.Reason ?? "no reason given"}",
+        Result = AuditEventResult.Success
+    });
+
+    logger.LogInformation("Request {requestId} denied by {denierId}", request.RequestId, denierId);
+
+    return Results.Ok(new { requestId = request.RequestId, status = request.Status.ToString() });
+})
+.WithName("DenyRequest")
+.RequireAuthorization("Authenticated");
+
+// Redeem OTP — validates one-time password and returns pre-signed S3 URLs
+app.MapPost("/requests/{id}/redeem", async (string id, RedeemRequestDto dto, HttpContext context, IDataService dataService, IS3Service s3Service, ILogger<Program> logger) =>
+{
+    var redeemerId = context.User.FindFirst("user_id")?.Value;
+
+    if (string.IsNullOrEmpty(redeemerId))
+    {
+        return Results.BadRequest(new { error = "User not properly provisioned" });
+    }
+
+    if (string.IsNullOrWhiteSpace(dto.Otp))
+    {
+        return Results.BadRequest(new { error = "OTP is required" });
+    }
+
+    var request = await dataService.GetRequestByIdAsync(id);
+    if (request == null)
+    {
+        return Results.NotFound(new { error = "Request not found" });
+    }
+
+    // Only the original requester may redeem
+    if (request.RequesterId != redeemerId)
+    {
+        return Results.Forbid();
+    }
+
+    if (request.Status != RequestStatus.OtpSent)
+    {
+        return Results.BadRequest(new { error = $"Request is not in a redeemable state (current status: {request.Status})" });
+    }
+
+    // Validate OTP expiry
+    if (request.OtpExpiresAt == null || DateTime.UtcNow > request.OtpExpiresAt)
+    {
+        await dataService.CreateAuditEventAsync(new AuditEvent
+        {
+            EventType = "OTP_EXPIRED",
+            ActorId = redeemerId,
+            RequestId = request.RequestId,
+            DatasetId = request.DatasetId,
+            Description = $"OTP redemption failed for request {request.RequestId}: OTP expired",
+            Result = AuditEventResult.Failure
+        });
+        return Results.BadRequest(new { error = "OTP has expired" });
+    }
+
+    // Validate OTP hash
+    var submittedHash = Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(dto.Otp.Trim()))
+    );
+    if (!string.Equals(request.OtpToken, submittedHash, StringComparison.Ordinal))
+    {
+        await dataService.CreateAuditEventAsync(new AuditEvent
+        {
+            EventType = "OTP_INVALID",
+            ActorId = redeemerId,
+            RequestId = request.RequestId,
+            DatasetId = request.DatasetId,
+            Description = $"OTP redemption failed for request {request.RequestId}: invalid OTP",
+            Result = AuditEventResult.Failure
+        });
+        return Results.BadRequest(new { error = "Invalid OTP" });
+    }
+
+    // Generate pre-signed URLs (15-minute expiry)
+    var dataBucket = context.RequestServices.GetRequiredService<IConfiguration>()["AWS:S3:DataBucket"] ?? "zero-trust-data";
+    var urlExpiry = TimeSpan.FromMinutes(15);
+    var presignedUrls = new Dictionary<string, string>();
+    foreach (var key in request.ObjectKeys)
+    {
+        try
+        {
+            presignedUrls[key] = await s3Service.GeneratePresignedUrlAsync(dataBucket, key, urlExpiry);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to generate pre-signed URL for {key}", key);
+            return Results.StatusCode(StatusCodes.Status500InternalServerError);
+        }
+    }
+
+    var urlExpiresAt = DateTime.UtcNow.Add(urlExpiry);
+
+    request.Status = RequestStatus.Redeemed;
+    request.RedeemedAt = DateTime.UtcNow;
+    request.OtpToken = null;   // Invalidate OTP after use
+    request.PresignedUrlExpiresAt = urlExpiresAt;
+    request.UpdatedAt = DateTime.UtcNow;
+
+    await dataService.UpdateDataAccessRequestAsync(request);
+
+    await dataService.CreateAuditEventAsync(new AuditEvent
+    {
+        EventType = "OTP_REDEEMED",
+        ActorId = redeemerId,
+        RequestId = request.RequestId,
+        DatasetId = request.DatasetId,
+        Description = $"OTP successfully redeemed for request {request.RequestId}; {presignedUrls.Count} pre-signed URL(s) issued",
+        Result = AuditEventResult.Success,
+        Metadata = new Dictionary<string, object>
+        {
+            { "object_count", presignedUrls.Count },
+            { "url_expires_at", urlExpiresAt.ToString("o") }
+        }
+    });
+
+    logger.LogInformation("OTP redeemed for request {requestId} by {redeemerId}", request.RequestId, redeemerId);
+
+    return Results.Ok(new
+    {
+        requestId = request.RequestId,
+        status = request.Status.ToString(),
+        presignedUrls,
+        expiresAt = urlExpiresAt,
+        message = "Access granted. URLs expire in 15 minutes."
+    });
+})
+.WithName("RedeemRequest")
 .RequireAuthorization("Authenticated");
 
 app.Run();

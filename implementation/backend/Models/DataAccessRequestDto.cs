@@ -98,3 +98,25 @@ public class ApproveRequestDto
     public Dictionary<string, string>? Conditions { get; set; }
 }
 
+/// <summary>
+/// Request denial payload
+/// </summary>
+public class DenyRequestDto
+{
+    /// <summary>
+    /// Reason for denial
+    /// </summary>
+    public string? Reason { get; set; }
+}
+
+/// <summary>
+/// OTP redemption payload
+/// </summary>
+public class RedeemRequestDto
+{
+    /// <summary>
+    /// One-time password received after approval
+    /// </summary>
+    public string Otp { get; set; } = null!;
+}
+

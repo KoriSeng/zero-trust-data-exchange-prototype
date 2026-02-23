@@ -3,7 +3,7 @@ type: Task
 task_id: TASK-014
 title: "Design and Implement Step Function for Approval Workflow"
 owner: STK-001
-status: "Not Started"
+status: "Completed"
 related_milestone: MS-005
 ---
 

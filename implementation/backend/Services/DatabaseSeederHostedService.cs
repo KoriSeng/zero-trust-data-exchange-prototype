@@ -75,6 +75,7 @@ public class DatabaseSeederHostedService : IHostedService
             {
                 Id = orgAId,
                 Name = "Organization A (Data Custodian)",
+                ShortName = "ORG-A",
                 CognitoIdpName = "IDP-A",
                 CognitoGroupName = "ap-southeast-1_xxxxx_IDP-A",
                 IdpIssuer = "http://localhost:9001",
@@ -85,6 +86,7 @@ public class DatabaseSeederHostedService : IHostedService
             {
                 Id = orgBId,
                 Name = "Organization B (Data Readers)",
+                ShortName = "ORG-B",
                 CognitoIdpName = "IDP-B",
                 CognitoGroupName = "ap-southeast-1_yyyyy_IDP-B",
                 IdpIssuer = "http://localhost:9002",
@@ -243,19 +245,20 @@ Effective Date: " + DateTime.UtcNow.ToString("yyyy-MM-dd"),
 
         // Create sample request
         _logger.LogInformation("Creating sample requests...");
+        var alexKimUser = users[0].user; // IDP-A_A-001
         var request = new DataAccessRequest
         {
             Id = Guid.NewGuid().ToString(),
             RequestId = "REQ-2024-001",
-            RequesterId = "IDP-A_A-001",
+            RequesterId = alexKimUser.Id,  // UUID — matches user_id claim from JIT provisioning
             RequesterEmail = "a.alex@org-a.example.com",
-            RequesterOrg = "ORG-A",
-            DataOwnerOrg = "ORG-B",
+            RequesterOrg = orgAId,
+            DataOwnerOrg = orgBId,
             DatasetId = "dataset-genomic-2024",
             DatasetName = "Genomic Research Dataset 2024",
             ObjectKeys = new List<string> { "samples/data-001.csv", "samples/data-002.csv" },
             Purpose = "Machine learning model training",
-            Status = RequestStatus.Submitted,
+            Status = RequestStatus.PendingOwnerApproval,
             UserAgreementId = "AGREEMENT-001",
             UserAgreementVersion = 1,
             AgreementContent = agreement.Content,
@@ -264,7 +267,31 @@ Effective Date: " + DateTime.UtcNow.ToString("yyyy-MM-dd"),
             ExpiresAt = DateTime.UtcNow.AddDays(5)
         };
         await _dataService.PutRequestAsync(request);
-        _logger.LogInformation("✓ Created 1 sample request");
+
+        // REQ-2024-002 — seeded for denial-flow testing in k6 (requester: Sam, IDP-A_A-002)
+        var samLeeUser = users[1].user; // IDP-A_A-002
+        var denyRequest = new DataAccessRequest
+        {
+            Id = Guid.NewGuid().ToString(),
+            RequestId = "REQ-2024-002",
+            RequesterId = samLeeUser.Id,  // UUID — matches user_id claim from JIT provisioning
+            RequesterEmail = "a.sam@org-a.example.com",
+            RequesterOrg = orgAId,
+            DataOwnerOrg = orgBId,
+            DatasetId = "dataset-proteomics-2024",
+            DatasetName = "Proteomics Research Dataset 2024",
+            ObjectKeys = new List<string> { "samples/data-003.csv" },
+            Purpose = "Proteomics secondary analysis",
+            Status = RequestStatus.PendingOwnerApproval,
+            UserAgreementId = "AGREEMENT-001",
+            UserAgreementVersion = 1,
+            AgreementContent = agreement.Content,
+            CreatedAt = DateTime.UtcNow.AddDays(-1),
+            UpdatedAt = DateTime.UtcNow.AddDays(-1),
+            ExpiresAt = DateTime.UtcNow.AddDays(6)
+        };
+        await _dataService.PutRequestAsync(denyRequest);
+        _logger.LogInformation("✓ Created 2 sample requests");
 
         _logger.LogInformation("\n========================================");
         _logger.LogInformation("Database initialized successfully!");

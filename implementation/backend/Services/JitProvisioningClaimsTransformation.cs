@@ -282,13 +282,11 @@ public class JitProvisioningClaimsTransformation : IClaimsTransformation
     }
 
     /// <summary>
-    /// Helper method to get user roles (requires access to data service)
-    /// Note: This is injected as a dependency in the handler if needed
+    /// Helper method to get user roles from the data service.
     /// </summary>
     private async Task<List<string>> GetUserRolesAsync(string userId)
     {
-        // This would need to be injected or retrieved from context
-        // For now, return empty list - roles can be added after user provisioning
-        return await Task.FromResult(new List<string>());
+        var roles = await _dataService.GetUserRolesAsync(userId);
+        return roles.Select(r => r.Name).ToList();
     }
 }

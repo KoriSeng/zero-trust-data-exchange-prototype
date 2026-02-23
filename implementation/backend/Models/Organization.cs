@@ -23,6 +23,13 @@ public class Organization
     public string Name { get; set; } = null!;
 
     /// <summary>
+    /// Short organization code used in API requests (e.g., "ORG-A", "ORG-B")
+    /// Used to resolve DataOwnerOrg values passed in request bodies
+    /// </summary>
+    [BsonElement("short_name")]
+    public string? ShortName { get; set; }
+
+    /// <summary>
     /// Cognito IDP name (e.g., "IDP-A")
     /// </summary>
     [BsonElement("cognito_idp_name")]

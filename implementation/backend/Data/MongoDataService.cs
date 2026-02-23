@@ -95,6 +95,14 @@ public class MongoDataService : IDataService
                     .Ascending(r => r.Status)
             )
         );
+
+        // AuditEvents: Query by request_id for audit trail
+        _auditCollection.Indexes.CreateOne(
+            new CreateIndexModel<AuditEvent>(
+                Builders<AuditEvent>.IndexKeys.Ascending(e => e.RequestId)
+                    .Descending(e => e.CreatedAt)
+            )
+        );
     }
 
     // ==================== User Operations ====================
@@ -204,6 +212,13 @@ public class MongoDataService : IDataService
             .FirstOrDefaultAsync();
     }
 
+    public async Task<Organization?> GetOrganizationByShortNameAsync(string shortName)
+    {
+        return await _organizationsCollection
+            .Find(o => o.ShortName == shortName)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task<List<Organization>> GetAllOrganizationsAsync()
     {
         return await _organizationsCollection.Find(_ => true).ToListAsync();
@@ -260,7 +275,7 @@ public class MongoDataService : IDataService
 
     public async Task<DataAccessRequest?> GetRequestByIdAsync(string requestId)
     {
-        return await _requestsCollection.Find(r => r.RequestId == requestId).FirstOrDefaultAsync();
+        return await _requestsCollection.Find(r => r.Id == requestId).FirstOrDefaultAsync();
     }
 
     public async Task<List<DataAccessRequest>> GetRequestsByRequesterAsync(string requesterId, int limit = 100)
@@ -318,5 +333,30 @@ public class MongoDataService : IDataService
     public async Task UpdateDataAccessRequestAsync(DataAccessRequest request)
     {
         await _requestsCollection.ReplaceOneAsync(r => r.Id == request.Id, request);
+    }
+
+    // ==================== AuditEvent Operations ====================
+
+    public async Task CreateAuditEventAsync(AuditEvent auditEvent)
+    {
+        await _auditCollection.InsertOneAsync(auditEvent);
+    }
+
+    public async Task<List<AuditEvent>> GetAuditEventsAsync(int limit = 100)
+    {
+        return await _auditCollection
+            .Find(_ => true)
+            .SortByDescending(e => e.CreatedAt)
+            .Limit(limit)
+            .ToListAsync();
+    }
+
+    public async Task<List<AuditEvent>> GetAuditEventsByRequestAsync(string requestId, int limit = 100)
+    {
+        return await _auditCollection
+            .Find(e => e.RequestId == requestId)
+            .SortByDescending(e => e.CreatedAt)
+            .Limit(limit)
+            .ToListAsync();
     }
 }

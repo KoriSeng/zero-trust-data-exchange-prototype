@@ -3,7 +3,7 @@ type: Task
 task_id: TASK-016
 title: "Create API Testing Suite"
 owner: STK-001
-status: "Not Started"
+status: "Completed"
 related_milestone: MS-005
 ---
 
