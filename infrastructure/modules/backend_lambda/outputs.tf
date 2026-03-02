@@ -37,3 +37,25 @@ output "public_subnet_ids" {
   description = "Public subnet IDs (Lambda — internet via IGW)"
   value       = [aws_subnet.public_a.id, aws_subnet.public_b.id]
 }
+
+# ── CloudWatch Logging Outputs (TASK-017) ─────────────────────────────────────
+
+output "cloudwatch_kms_key_arn" {
+  description = "KMS key ARN used for CloudWatch log group encryption"
+  value       = aws_kms_key.cloudwatch_logs.arn
+}
+
+output "lambda_log_group_name" {
+  description = "CloudWatch Log Group name for Lambda function logs"
+  value       = aws_cloudwatch_log_group.lambda_backend.name
+}
+
+output "audit_log_group_name" {
+  description = "CloudWatch Log Group name for structured audit events"
+  value       = aws_cloudwatch_log_group.audit.name
+}
+
+output "apigw_log_group_name" {
+  description = "CloudWatch Log Group name for API Gateway access logs"
+  value       = aws_cloudwatch_log_group.apigw.name
+}

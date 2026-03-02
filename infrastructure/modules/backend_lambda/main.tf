@@ -313,13 +313,106 @@ resource "aws_iam_role_policy" "lambda_stepfunctions" {
   })
 }
 
+# Scoped CloudWatch Logs permissions for Lambda (TASK-017)
+# Grants explicit write access to the specific log groups; supplements AWSLambdaVPCAccessExecutionRole
+resource "aws_iam_role_policy" "lambda_cloudwatch_logs" {
+  name = "${local.name_prefix}-lambda-cw-logs-policy"
+  role = aws_iam_role.lambda_backend.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams"
+        ]
+        Resource = [
+          "${aws_cloudwatch_log_group.lambda_backend.arn}:*",
+          "${aws_cloudwatch_log_group.audit.arn}:*"
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey"]
+        Resource = aws_kms_key.cloudwatch_logs.arn
+      }
+    ]
+  })
+}
+
 # ============================================================================
-# CloudWatch Log Group for Lambda
+# KMS Key for CloudWatch Logs Encryption (TASK-017)
+# ============================================================================
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_kms_key" "cloudwatch_logs" {
+  description             = "KMS key for CloudWatch Logs encryption - ${local.name_prefix}"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow CloudWatch Logs Service"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${var.aws_region}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = { Name = "${local.name_prefix}-cloudwatch-logs-key" }
+}
+
+resource "aws_kms_alias" "cloudwatch_logs" {
+  name          = "alias/${local.name_prefix}-cloudwatch-logs"
+  target_key_id = aws_kms_key.cloudwatch_logs.key_id
+}
+
+# ============================================================================
+# CloudWatch Log Groups (TASK-017)
+# All groups: 90-day retention, KMS encrypted
 # ============================================================================
 
 resource "aws_cloudwatch_log_group" "lambda_backend" {
   name              = "/aws/lambda/${local.name_prefix}-backend"
-  retention_in_days = 30
+  retention_in_days = 90
+  kms_key_id        = aws_kms_key.cloudwatch_logs.arn
+}
+
+# Dedicated audit event log group — backend writes structured audit events here
+resource "aws_cloudwatch_log_group" "audit" {
+  name              = "/zero-trust/${local.name_prefix}/audit"
+  retention_in_days = 90
+  kms_key_id        = aws_kms_key.cloudwatch_logs.arn
 }
 
 # ============================================================================
@@ -358,6 +451,8 @@ resource "aws_lambda_function" "backend" {
       # Suppress LocalStack override — use real AWS endpoints in Lambda
       AWS__ServiceUrl        = ""
       ASPNETCORE_ENVIRONMENT = "Production"
+      # CloudWatch Logs audit log group name (TASK-017)
+      CloudWatch__AuditLogGroup = aws_cloudwatch_log_group.audit.name
     }
   }
 
@@ -366,6 +461,7 @@ resource "aws_lambda_function" "backend" {
     aws_docdb_cluster_instance.main,
     aws_iam_role_policy_attachment.lambda_vpc_execution,
     aws_cloudwatch_log_group.lambda_backend,
+    aws_iam_role_policy.lambda_cloudwatch_logs,
   ]
 
   tags = { Name = "${local.name_prefix}-backend" }
@@ -442,7 +538,8 @@ resource "aws_apigatewayv2_stage" "default" {
 
 resource "aws_cloudwatch_log_group" "apigw" {
   name              = "/aws/apigateway/${local.name_prefix}-backend"
-  retention_in_days = 30
+  retention_in_days = 90
+  kms_key_id        = aws_kms_key.cloudwatch_logs.arn
 }
 
 # Allow API Gateway to invoke the Lambda function
