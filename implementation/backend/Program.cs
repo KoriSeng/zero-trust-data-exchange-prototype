@@ -4,6 +4,7 @@ using ZeroTrust.Backend.Services;
 using ZeroTrust.Backend.Models;
 using Amazon.S3;
 using Amazon.StepFunctions;
+using Amazon.Lambda.AspNetCoreServer.Hosting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -135,8 +136,12 @@ else
 builder.Services.AddScoped<IS3Service, S3Service>();
 builder.Services.AddScoped<IStepFunctionsService, StepFunctionsService>();
 
-// Database seeder hosted service
-builder.Services.AddHostedService<DatabaseSeederHostedService>();
+// Database seeder hosted service — skipped in Lambda to prevent wiping DB on cold starts
+if (builder.Configuration.GetValue<bool>("SeedDatabase", false) ||
+    builder.Environment.IsDevelopment())
+{
+    builder.Services.AddHostedService<DatabaseSeederHostedService>();
+}
 
 // Add logging
 builder.Services.AddLogging(config =>
@@ -152,6 +157,10 @@ builder.Services.ConfigureHttpJsonOptions(options =>
         new System.Text.Json.Serialization.JsonStringEnumConverter()
     );
 });
+
+// Lambda hosting — active only when running inside Lambda (LAMBDA_TASK_ROOT env var present)
+// No-op when running locally with Kestrel
+builder.Services.AddAWSLambdaHosting(LambdaEventSource.HttpApi);
 
 // ============ Build App ============
 var app = builder.Build();

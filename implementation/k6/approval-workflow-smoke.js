@@ -537,6 +537,106 @@ export default function () {
     },
   );
 
+  // =========================================================================
+  // Section 9 — Audit Trail Verification
+  // =========================================================================
+
+  group(
+    "GET /requests/{id}/audit — requester views audit trail",
+    function () {
+      const res = http.get(`${BASE_URL}/requests/${seededId}/audit`, {
+        headers: authHeaders(jwtRequester),
+      });
+      const body = parseBody(res);
+      const passed = check(res, {
+        "returns 200": (r) => r.status === 200,
+        "body is an array": (r) => Array.isArray(parseBody(r)),
+        "at least one audit event present": (r) => {
+          const b = parseBody(r);
+          return Array.isArray(b) && b.length >= 1;
+        },
+        "REQUEST_APPROVED event is present": (r) => {
+          const b = parseBody(r);
+          return (
+            Array.isArray(b) &&
+            b.some((e) => e.eventType === "REQUEST_APPROVED")
+          );
+        },
+        "OTP_REDEEMED event is present": (r) => {
+          const b = parseBody(r);
+          return (
+            Array.isArray(b) &&
+            b.some((e) => e.eventType === "OTP_REDEEMED")
+          );
+        },
+      });
+      console.log(
+        passed
+          ? `✓ GET /requests/{id}/audit — ${Array.isArray(body) ? body.length : 0} event(s) returned`
+          : "✗ GET /requests/{id}/audit — requester",
+      );
+    },
+  );
+
+  group(
+    "GET /requests/{id}/audit — data owner can view audit trail",
+    function () {
+      const res = http.get(`${BASE_URL}/requests/${seededId}/audit`, {
+        headers: authHeaders(jwtDataOwner),
+      });
+      const passed = check(res, {
+        "data owner gets 200": (r) => r.status === 200,
+        "body is an array": (r) => Array.isArray(parseBody(r)),
+      });
+      console.log(
+        passed
+          ? "✓ GET /requests/{id}/audit — data owner access allowed"
+          : "✗ GET /requests/{id}/audit — data owner should have access",
+      );
+    },
+  );
+
+  group(
+    "GET /requests/{id}/audit — unrelated user is forbidden",
+    function () {
+      const res = http.get(`${BASE_URL}/requests/${seededId}/audit`, {
+        headers: authHeaders(jwtUnrelated),
+      });
+      const passed = check(res, {
+        "unrelated user gets 403": (r) => r.status === 403,
+      });
+      console.log(
+        passed
+          ? "✓ GET /requests/{id}/audit — unrelated user correctly forbidden"
+          : "✗ GET /requests/{id}/audit — unrelated user should be forbidden",
+      );
+    },
+  );
+
+  group(
+    "GET /requests/{id}/audit — deny trail includes REQUEST_DENIED",
+    function () {
+      const res = http.get(`${BASE_URL}/requests/${denyId}/audit`, {
+        headers: authHeaders(jwtDataOwner),
+      });
+      const passed = check(res, {
+        "returns 200": (r) => r.status === 200,
+        "REQUEST_DENIED event is present": (r) => {
+          const b = parseBody(r);
+          return (
+            Array.isArray(b) &&
+            b.some((e) => e.eventType === "REQUEST_DENIED")
+          );
+        },
+      });
+      console.log(
+        passed
+          ? "✓ GET /requests/{id}/audit — REQUEST_DENIED captured in deny trail"
+          : "✗ GET /requests/{id}/audit — deny trail",
+      );
+    },
+  );
+
   console.log("\n========================================");
   console.log("Approval Workflow Smoke Test Complete");
   console.log("========================================");

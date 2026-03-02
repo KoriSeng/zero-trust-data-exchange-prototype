@@ -8,7 +8,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
     archive = {
       source  = "hashicorp/archive"
@@ -16,15 +16,7 @@ terraform {
     }
   }
 
-  # Backend configuration for state management
-  # Uncomment and configure when ready to use remote state
-  # backend "s3" {
-  #   bucket         = "your-terraform-state-bucket"
-  #   key            = "zero-trust-prototype/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   encrypt        = true
-  #   dynamodb_table = "terraform-state-lock"
-  # }
+  backend "s3" {}
 }
 
 provider "aws" {
@@ -58,6 +50,13 @@ variable "project_name" {
   description = "Project name for resource naming"
   type        = string
   default     = "zero-trust-prototype"
+}
+
+variable "docdb_master_password" {
+  description = "DocumentDB master password for the backend database"
+  type        = string
+  sensitive   = true
+  default     = "" # Set in terraform.tfvars or via TF_VAR_docdb_master_password
 }
 
 # Data source to get current AWS account ID
@@ -190,6 +189,26 @@ module "cognito" {
 }
 
 # ============================================================================
+# Backend Lambda + API Gateway + DocumentDB
+# ============================================================================
+
+module "backend_lambda" {
+  source = "./modules/backend_lambda"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+
+  cognito_user_pool_id       = module.cognito.user_pool_id
+  cognito_user_pool_endpoint = module.cognito.user_pool_endpoint
+  cognito_app_client_id      = module.cognito.app_client_id
+
+  docdb_master_password = var.docdb_master_password
+
+  depends_on = [module.cognito]
+}
+
+# ============================================================================
 # Outputs
 # ============================================================================
 
@@ -251,4 +270,14 @@ output "cognito_app_client_id" {
 output "cognito_hosted_ui_url" {
   description = "Cognito Hosted UI URL"
   value       = module.cognito.hosted_ui_url
+}
+
+output "backend_api_url" {
+  description = "Backend API Gateway invoke URL"
+  value       = module.backend_lambda.api_gateway_url
+}
+
+output "backend_docdb_endpoint" {
+  description = "DocumentDB cluster endpoint (internal, for debugging)"
+  value       = module.backend_lambda.docdb_endpoint
 }

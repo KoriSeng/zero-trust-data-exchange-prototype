@@ -176,24 +176,54 @@ After deployment, the following outputs are available:
 
 Terraform state is stored locally in `terraform.tfstate`. This is suitable for development but **not recommended for production**.
 
-### Remote State (S3)
+### Remote State (S3 + DynamoDB Locking)
 
-To enable remote state, uncomment and configure the backend in `main.tf`:
+This repository is configured with a **partial backend** (`backend "s3" {}` in `main.tf`).
+Set concrete backend values in a local `backend.hcl` file.
 
-```hcl
-backend "s3" {
-  bucket         = "your-terraform-state-bucket"
-  key            = "zero-trust-prototype/terraform.tfstate"
-  region         = "us-east-1"
-  encrypt        = true
-  dynamodb_table = "terraform-state-lock"
-}
-```
-
-Then reinitialize:
+1. Create backend config from example:
 
 ```bash
-terraform init
+cp backend.hcl.example backend.hcl
+```
+
+2. Edit `backend.hcl` with your real values (`bucket`, `key`, `region`, `dynamodb_table`).
+
+3. Ensure LocalStack endpoint overrides are not set:
+
+```bash
+unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3 AWS_ENDPOINT_URL_STS
+```
+
+4. Initialize and migrate existing local state to S3:
+
+```bash
+tofu init -reconfigure -migrate-state -backend-config=backend.hcl
+```
+
+5. Verify backend and state:
+
+```bash
+tofu state list
+tofu plan
+```
+
+If this is your first backend setup, create the S3 bucket and DynamoDB lock table first.
+
+Example lock table schema:
+
+- Table name: `terraform-state-lock`
+- Partition key: `LockID` (String)
+- Billing mode: on-demand
+
+### State Drift Recovery (Existing AWS Resources)
+
+If OpenTofu tries to recreate an existing resource (for example IAM role already exists), import it into state:
+
+```bash
+tofu import aws_iam_role.lambda_exec_role zero-trust-prototype-lambda-exec-role
+tofu import aws_iam_role_policy_attachment.lambda_basic_execution 'zero-trust-prototype-lambda-exec-role/arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+tofu plan
 ```
 
 ## Maintenance

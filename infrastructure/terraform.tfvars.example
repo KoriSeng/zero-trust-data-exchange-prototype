@@ -5,3 +5,7 @@
 aws_region   = "ap-southeast-1"
 environment  = "dev"
 project_name = "zero-trust-prototype"
+
+# DocumentDB master password — required for backend Lambda deployment
+# Must be 8-100 characters and not contain / " @ or spaces
+docdb_master_password = "change-me-strong-password-1"
