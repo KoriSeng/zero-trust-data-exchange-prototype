@@ -9,6 +9,11 @@
     "idp-b:dev": "node implementation/idp-b/server.js",
     "idp:test:smoke": "k6 run implementation/k6/idp-smoke.js",
     "backend:dev": "cd implementation/backend && dotnet run",
-    "backend:test:smoke": "k6 run implementation/k6/backend-smoke.js"
+    "backend:test:smoke": "k6 run implementation/k6/backend-smoke.js",
+    "backend:test:auth-security": "k6 run implementation/k6/auth-security.js",
+    "backend:test:otp-security": "k6 run implementation/k6/otp-security.js"
+  },
+  "dependencies": {
+    "k6": "^0.0.0"
   }
 }

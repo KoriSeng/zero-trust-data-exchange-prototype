@@ -3,8 +3,8 @@ using ZeroTrust.Backend.Models;
 namespace ZeroTrust.Backend.Data;
 
 /// <summary>
-/// Data access service interface for MongoDB/DynamoDB abstraction
-/// Supports MongoDB for local development, DynamoDB for production
+/// Data access service interface for MongoDB/DocumentDB abstraction
+/// Supports MongoDB for local development, DocumentDB for AWS deployment
 /// </summary>
 public interface IDataService
 {
@@ -48,9 +48,19 @@ public interface IDataService
     Task PutRequestAsync(DataAccessRequest request);
     Task UpdateDataAccessRequestAsync(DataAccessRequest request);
     Task<List<DataAccessRequest>> GetRequestsByStatusAsync(RequestStatus status, int limit = 100);
+    Task<List<DatasetCatalogItem>> GetPublishedDatasetCatalogItemsAsync(int limit = 200);
+    Task PutDatasetCatalogItemAsync(DatasetCatalogItem item);
 
     // AuditEvent operations
     Task CreateAuditEventAsync(AuditEvent auditEvent);
     Task<List<AuditEvent>> GetAuditEventsAsync(int limit = 100);
     Task<List<AuditEvent>> GetAuditEventsByRequestAsync(string requestId, int limit = 100);
+
+    // OTP operations
+    Task CreateOtpRecordAsync(OtpRecord record);
+    Task<OtpRecord?> GetLatestOtpRecordAsync(string requestId);
+    Task UpdateOtpRecordAsync(OtpRecord record);
+    Task<bool> TryMarkOtpUsedAsync(string otpRecordId, int expectedAttemptCount);
+    Task<bool> TryIncrementOtpAttemptAsync(string otpRecordId, int expectedAttemptCount, DateTime? lockedAt);
+    Task<int> CountOtpRecordsSinceAsync(string requestId, DateTime sinceUtc);
 }

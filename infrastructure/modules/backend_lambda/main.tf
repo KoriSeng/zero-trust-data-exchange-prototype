@@ -25,10 +25,6 @@ locals {
 # No VPC Interface Endpoints — avoids per-AZ hourly endpoint costs
 # ============================================================================
 
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
@@ -41,7 +37,7 @@ resource "aws_vpc" "main" {
 resource "aws_subnet" "public_a" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.0.0/24"
-  availability_zone       = data.aws_availability_zones.available.names[0]
+  availability_zone       = var.subnet_az_a
   map_public_ip_on_launch = true
 
   tags = { Name = "${local.name_prefix}-public-a" }
@@ -50,7 +46,7 @@ resource "aws_subnet" "public_a" {
 resource "aws_subnet" "public_b" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.3.0/24"
-  availability_zone       = data.aws_availability_zones.available.names[1]
+  availability_zone       = var.subnet_az_b
   map_public_ip_on_launch = true
 
   tags = { Name = "${local.name_prefix}-public-b" }
@@ -59,7 +55,7 @@ resource "aws_subnet" "public_b" {
 resource "aws_subnet" "private_a" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.1.0/24"
-  availability_zone = data.aws_availability_zones.available.names[0]
+  availability_zone = var.subnet_az_a
 
   tags = { Name = "${local.name_prefix}-private-a" }
 }
@@ -67,7 +63,7 @@ resource "aws_subnet" "private_a" {
 resource "aws_subnet" "private_b" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.2.0/24"
-  availability_zone = data.aws_availability_zones.available.names[1]
+  availability_zone = var.subnet_az_b
 
   tags = { Name = "${local.name_prefix}-private-b" }
 }
@@ -138,13 +134,13 @@ resource "aws_security_group" "lambda" {
   description = "Security group for backend Lambda function"
   vpc_id      = aws_vpc.main.id
 
-  # Outbound HTTPS — S3 (via gateway endpoint) and internet (direct via IGW, no NAT)
+  # Prototype simplification: allow all outbound traffic.
   egress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "HTTPS outbound (S3 gateway endpoint + internet via IGW)"
+    description = "Allow all outbound traffic"
   }
 
   tags = { Name = "${local.name_prefix}-lambda-sg" }
@@ -156,17 +152,6 @@ resource "aws_security_group" "docdb" {
   vpc_id      = aws_vpc.main.id
 
   tags = { Name = "${local.name_prefix}-docdb-sg" }
-}
-
-# Separate rules to break the circular dependency between lambda and docdb security groups
-resource "aws_security_group_rule" "lambda_to_docdb" {
-  type                     = "egress"
-  from_port                = 27017
-  to_port                  = 27017
-  protocol                 = "tcp"
-  security_group_id        = aws_security_group.lambda.id
-  source_security_group_id = aws_security_group.docdb.id
-  description              = "DocumentDB"
 }
 
 resource "aws_security_group_rule" "docdb_from_lambda" {
@@ -227,21 +212,12 @@ resource "aws_docdb_cluster_instance" "main" {
 }
 
 # ============================================================================
-# Lambda Build (null_resource triggers dotnet publish on code changes)
+# Lambda Build (null_resource triggers dotnet publish on every apply)
 # ============================================================================
-
-# Hash all .cs source files + csproj to detect when a rebuild is needed
-data "external" "backend_source_hash" {
-  program = ["bash", "-c", <<-EOT
-    find ${path.module}/../../../implementation/backend -name "*.cs" -o -name "*.csproj" \
-      | sort | xargs sha256sum 2>/dev/null | sha256sum | awk '{print "{\"hash\":\""$1"\"}"}'
-  EOT
-  ]
-}
 
 resource "null_resource" "build_backend_lambda" {
   triggers = {
-    source_hash = data.external.backend_source_hash.result["hash"]
+    always_run = timestamp()
   }
 
   provisioner "local-exec" {
@@ -300,6 +276,8 @@ resource "aws_iam_role_policy" "lambda_s3" {
 }
 
 resource "aws_iam_role_policy" "lambda_stepfunctions" {
+  count = var.step_functions_approval_arn != "" ? 1 : 0
+
   name = "${local.name_prefix}-lambda-sfn-policy"
   role = aws_iam_role.lambda_backend.id
 
@@ -308,7 +286,28 @@ resource "aws_iam_role_policy" "lambda_stepfunctions" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["states:StartExecution", "states:DescribeExecution"]
-      Resource = var.step_functions_approval_arn != "" ? [var.step_functions_approval_arn] : ["arn:aws:states:*:*:stateMachine:*"]
+      Resource = [var.step_functions_approval_arn]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_kms_logs" {
+  count = var.logs_kms_enabled ? 1 : 0
+
+  name = "${local.name_prefix}-lambda-kms-logs"
+  role = aws_iam_role.lambda_backend.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "AllowKMSForCloudWatchLogs"
+      Effect = "Allow"
+      Action = [
+        "kms:GenerateDataKey*",
+        "kms:Decrypt",
+        "kms:DescribeKey"
+      ]
+      Resource = var.logs_kms_key_arn
     }]
   })
 }
@@ -320,6 +319,20 @@ resource "aws_iam_role_policy" "lambda_stepfunctions" {
 resource "aws_cloudwatch_log_group" "lambda_backend" {
   name              = "/aws/lambda/${local.name_prefix}-backend"
   retention_in_days = 30
+  kms_key_id        = var.logs_kms_enabled ? var.logs_kms_key_arn : null
+}
+
+# CloudWatch log group for the Step Functions approval workflow.
+# Pre-provisioned with consistent retention even before the state machine
+# resource is added to Terraform. Skipped when step_functions_approval_arn is empty.
+resource "aws_cloudwatch_log_group" "stepfunctions" {
+  count = var.step_functions_approval_arn != "" ? 1 : 0
+
+  name              = "/aws/states/${local.name_prefix}-approval-workflow"
+  retention_in_days = 30
+  kms_key_id        = var.logs_kms_enabled ? var.logs_kms_key_arn : null
+
+  tags = { Name = "${local.name_prefix}-sfn-logs" }
 }
 
 # ============================================================================
@@ -334,9 +347,6 @@ resource "aws_lambda_function" "backend" {
   filename      = local.zip_path
   timeout       = var.lambda_timeout_s
   memory_size   = var.lambda_memory_mb
-
-  # Recompute source_code_hash only when the zip changes
-  source_code_hash = fileexists(local.zip_path) ? filebase64sha256(local.zip_path) : null
 
   vpc_config {
     subnet_ids         = [aws_subnet.public_a.id, aws_subnet.public_b.id]
@@ -353,6 +363,8 @@ resource "aws_lambda_function" "backend" {
       AWS__S3__RequestsBucket                 = var.s3_requests_bucket
       AWS__StepFunctions__ApprovalWorkflowArn = var.step_functions_approval_arn
       AWS__StepFunctions__Enabled             = var.step_functions_approval_arn != "" ? "true" : "false"
+      DeploymentTrigger                       = null_resource.build_backend_lambda.triggers.always_run
+      Cors__AllowedOrigins                    = join(",", var.cors_allowed_origins)
       # Prevent the DatabaseSeederHostedService from running on Lambda cold starts
       SeedDatabase = "false"
       # Suppress LocalStack override — use real AWS endpoints in Lambda
@@ -379,6 +391,14 @@ resource "aws_apigatewayv2_api" "backend" {
   name          = "${local.name_prefix}-backend-api"
   protocol_type = "HTTP"
   description   = "Zero Trust Data Exchange backend API"
+
+  cors_configuration {
+    allow_origins  = var.cors_allowed_origins
+    allow_methods  = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    allow_headers  = ["authorization", "content-type", "x-amz-date", "x-api-key", "x-amz-security-token"]
+    expose_headers = ["www-authenticate"]
+    max_age        = 300
+  }
 }
 
 # JWT Authorizer backed by Cognito User Pool
@@ -406,6 +426,13 @@ resource "aws_apigatewayv2_integration" "backend" {
 resource "aws_apigatewayv2_route" "health" {
   api_id    = aws_apigatewayv2_api.backend.id
   route_key = "GET /health"
+  target    = "integrations/${aws_apigatewayv2_integration.backend.id}"
+}
+
+# Preflight must bypass JWT auth; otherwise browsers get 401 on OPTIONS.
+resource "aws_apigatewayv2_route" "options_proxy" {
+  api_id    = aws_apigatewayv2_api.backend.id
+  route_key = "OPTIONS /{proxy+}"
   target    = "integrations/${aws_apigatewayv2_integration.backend.id}"
 }
 
@@ -443,6 +470,80 @@ resource "aws_apigatewayv2_stage" "default" {
 resource "aws_cloudwatch_log_group" "apigw" {
   name              = "/aws/apigateway/${local.name_prefix}-backend"
   retention_in_days = 30
+  kms_key_id        = var.logs_kms_enabled ? var.logs_kms_key_arn : null
+}
+
+resource "aws_cloudwatch_log_metric_filter" "lambda_error_count" {
+  name           = "${local.name_prefix}-lambda-errors"
+  log_group_name = aws_cloudwatch_log_group.lambda_backend.name
+  pattern        = "ERROR"
+
+  metric_transformation {
+    name          = "LambdaErrorCount"
+    namespace     = "${var.project_name}/${var.environment}"
+    value         = "1"
+    default_value = 0
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "lambda_error_spike" {
+  alarm_name          = "${local.name_prefix}-lambda-error-spike"
+  alarm_description   = "Backend Lambda error spike detected from log-derived metric."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 5
+  treat_missing_data  = "notBreaching"
+
+  namespace   = "${var.project_name}/${var.environment}"
+  metric_name = "LambdaErrorCount"
+
+  depends_on = [aws_cloudwatch_log_metric_filter.lambda_error_count]
+}
+
+resource "aws_cloudwatch_dashboard" "prototype_overview" {
+  dashboard_name = "${local.name_prefix}-overview"
+
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type   = "metric"
+        x      = 0
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "Lambda Errors (5-minute Sum)"
+          view   = "bar"
+          period = 300
+          stat   = "Sum"
+          metrics = [
+            ["${var.project_name}/${var.environment}", "LambdaErrorCount"]
+          ]
+          region = var.aws_region
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "API Gateway Latency (Average)"
+          view   = "timeSeries"
+          period = 60
+          stat   = "Average"
+          metrics = [
+            ["AWS/ApiGateway", "Latency", "ApiId", aws_apigatewayv2_api.backend.id, "Stage", aws_apigatewayv2_stage.default.name]
+          ]
+          region = var.aws_region
+        }
+      }
+    ]
+  })
 }
 
 # Allow API Gateway to invoke the Lambda function

@@ -29,6 +29,7 @@ public class JitProvisioningService : IJitProvisioningService
     private const string EmailClaimType = "email";
     private const string NameClaimType = "name";
     private const string CognitoGroupsClaimType = "cognito:groups";
+    private const string IdentitiesClaimType = "identities";
 
     public JitProvisioningService(
         IDataService dataService,
@@ -45,7 +46,19 @@ public class JitProvisioningService : IJitProvisioningService
         try
         {
             // Extract required claims
+            var (providerName, providerUserId) = ExtractFederatedIdentity(jwtClaims);
             var sub = _jwtExtractionService.GetClaimValue(jwtClaims, SubClaimType);
+            if (string.IsNullOrWhiteSpace(sub) &&
+                !string.IsNullOrWhiteSpace(providerName) &&
+                !string.IsNullOrWhiteSpace(providerUserId))
+            {
+                sub = $"{providerName}_{providerUserId}";
+                _logger.LogInformation(
+                    "Using identities fallback for missing sub claim: provider={providerName}, userId={providerUserId}",
+                    providerName,
+                    providerUserId);
+            }
+
             var email = _jwtExtractionService.GetClaimValue(jwtClaims, EmailClaimType);
             var name = _jwtExtractionService.GetClaimValue(jwtClaims, NameClaimType);
 
@@ -67,22 +80,41 @@ public class JitProvisioningService : IJitProvisioningService
 
             // Extract Cognito groups (auto-generated group IDs like "ap-southeast-1_lq8PdxNkF_IDP-A")
             var cognitoGroups = ExtractCognitoGroups(jwtClaims);
-            
-            if (cognitoGroups.Count == 0)
+            var primaryGroup = cognitoGroups.FirstOrDefault();
+            Organization? organization = null;
+
+            if (string.IsNullOrWhiteSpace(primaryGroup) && string.IsNullOrWhiteSpace(providerName))
             {
-                _logger.LogWarning("User {sub} has no Cognito groups, cannot determine organization", sub);
+                _logger.LogWarning(
+                    "User {sub} has no Cognito groups and no identities provider, cannot determine organization",
+                    sub);
                 return null;
             }
 
-            // Find organization matching the first Cognito group
-            // In practice, a user should have exactly one group for their organization
-            var organization = await _dataService.GetOrganizationByCognitoGroupAsync(cognitoGroups[0]);
-            
+            var organizations = await _dataService.GetAllOrganizationsAsync();
+            if (!string.IsNullOrWhiteSpace(primaryGroup))
+            {
+                organization = CognitoGroupMapper.FindMatchingOrganization(organizations, primaryGroup);
+            }
+
+            if (organization == null && !string.IsNullOrWhiteSpace(providerName))
+            {
+                organization = CognitoGroupMapper.FindMatchingOrganization(organizations, providerName);
+                if (organization != null)
+                {
+                    _logger.LogInformation(
+                        "Resolved organization from identities provider fallback: provider={providerName}, orgId={orgId}",
+                        providerName,
+                        organization.Id);
+                }
+            }
+
             if (organization == null)
             {
                 _logger.LogWarning(
-                    "No organization found for Cognito group {cognitoGroup}",
-                    cognitoGroups[0]
+                    "No organization found for Cognito group {cognitoGroup} (provider fallback: {providerName})",
+                    primaryGroup ?? "null",
+                    providerName ?? "null"
                 );
                 return null;
             }
@@ -94,7 +126,7 @@ public class JitProvisioningService : IJitProvisioningService
                 Sub = sub,
                 Email = email ?? "unknown@example.com",
                 DisplayName = name ?? email ?? "Unknown User",
-                OrganizationId = organization.Id,
+                OrganizationId = organization?.Id,
                 Status = UserStatus.Active,
                 CreatedAt = DateTime.UtcNow,
 
@@ -107,11 +139,9 @@ public class JitProvisioningService : IJitProvisioningService
                 "JIT provisioned user {userId} (sub={sub}) in organization {orgId}",
                 newUser.Id,
                 sub,
-                organization.Id
+                organization?.Id ?? "UNKNOWN"
             );
 
-            // Assign default role (Requester) to all users
-            // Organization-specific role assignments would happen through separate admin operations
             var requesterRole = await _dataService.GetRoleByNameAsync(RoleNames.Requester);
             if (requesterRole != null)
             {
@@ -212,5 +242,84 @@ public class JitProvisioningService : IJitProvisioningService
         }
 
         groups.Add(groupString);
+    }
+
+    private static (string? ProviderName, string? ProviderUserId) ExtractFederatedIdentity(
+        Dictionary<string, object> jwtClaims)
+    {
+        if (!jwtClaims.TryGetValue(IdentitiesClaimType, out var identitiesValue) || identitiesValue == null)
+        {
+            return (null, null);
+        }
+
+        if (identitiesValue is string identitiesString)
+        {
+            return TryParseFederatedIdentityFromJson(identitiesString);
+        }
+
+        if (identitiesValue is List<string> identitiesList)
+        {
+            foreach (var item in identitiesList)
+            {
+                var parsed = TryParseFederatedIdentityFromJson(item);
+                if (!string.IsNullOrWhiteSpace(parsed.ProviderName) ||
+                    !string.IsNullOrWhiteSpace(parsed.ProviderUserId))
+                {
+                    return parsed;
+                }
+            }
+        }
+
+        if (identitiesValue is System.Text.Json.JsonElement element)
+        {
+            return TryParseFederatedIdentityFromElement(element);
+        }
+
+        return (null, null);
+    }
+
+    private static (string? ProviderName, string? ProviderUserId) TryParseFederatedIdentityFromJson(
+        string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return (null, null);
+        }
+
+        if (!(json.TrimStart().StartsWith("[") || json.TrimStart().StartsWith("{")))
+        {
+            return (null, null);
+        }
+
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        return TryParseFederatedIdentityFromElement(doc.RootElement);
+    }
+
+    private static (string? ProviderName, string? ProviderUserId) TryParseFederatedIdentityFromElement(
+        System.Text.Json.JsonElement element)
+    {
+        if (element.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            var first = element.EnumerateArray().FirstOrDefault();
+            if (first.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                return (
+                    first.TryGetProperty("providerName", out var providerName) ? providerName.GetString() : null,
+                    first.TryGetProperty("userId", out var userId) ? userId.GetString() : null
+                );
+            }
+
+            return (null, null);
+        }
+
+        if (element.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            return (
+                element.TryGetProperty("providerName", out var providerName) ? providerName.GetString() : null,
+                element.TryGetProperty("userId", out var userId) ? userId.GetString() : null
+            );
+        }
+
+        return (null, null);
     }
 }

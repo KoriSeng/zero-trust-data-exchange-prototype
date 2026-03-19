@@ -45,6 +45,11 @@ public class JitProvisioningClaimsTransformation : IClaimsTransformation
             foreach (var kvp in claimsByType)
             {
                 var claimType = kvp.Key;
+                if (string.IsNullOrWhiteSpace(claimType))
+                {
+                    continue;
+                }
+
                 var claimValues = kvp.Value;
                 
                 if (claimValues.Count == 1)
@@ -87,7 +92,7 @@ public class JitProvisioningClaimsTransformation : IClaimsTransformation
                     }
                     else
                     {
-                        claims[claimType] = value;
+                        claims[claimType] = value ?? string.Empty;
                     }
                 }
                 else
@@ -110,37 +115,45 @@ public class JitProvisioningClaimsTransformation : IClaimsTransformation
             }
 
             // Add custom claims to represent the provisioned user
-            var identity = principal.Identity as ClaimsIdentity;
-            if (identity != null)
+            var identity = principal.Identities.OfType<ClaimsIdentity>()
+                .FirstOrDefault(i => i.IsAuthenticated)
+                ?? principal.Identities.OfType<ClaimsIdentity>().FirstOrDefault();
+
+            if (identity == null)
             {
-                // Add user metadata claims
-                AddClaimIfMissing(identity, "user_id", user.Id);
-                AddClaimIfMissing(identity, "user_sub", user.Sub);
-                AddClaimIfMissing(identity, "user_email", user.Email ?? "unknown@example.com");
-                AddClaimIfMissing(identity, "user_display_name", user.DisplayName ?? "Unknown User");
-                AddClaimIfMissing(identity, "user_organization", user.OrganizationId ?? "UNKNOWN");
-                AddClaimIfMissing(identity, "user_organization_name", await ResolveOrganizationNameAsync(user.OrganizationId));
-                AddClaimIfMissing(identity, "user_status", user.Status.ToString());
-                AddClaimIfMissing(identity, "user_created_at", user.CreatedAt.ToString("O"));
-                AddClaimIfMissing(identity, "user_last_access_at", user.LastAccessAt.ToString("O"));
-
-                // Add identity provider claim (used by /me and smoke tests)
-                var identityProvider = ResolveIdentityProvider(claims, principal);
-                if (!string.IsNullOrEmpty(identityProvider))
-                {
-                    AddClaimIfMissing(identity, "identity_provider", identityProvider);
-                }
-                
-                // Add roles if assigned
-                var roles = await GetUserRolesAsync(user.Id);
-                foreach (var role in roles)
-                {
-                    AddRoleIfMissing(identity, role);
-                }
-
-                _logger.LogInformation("JIT provisioned user {userId} ({email}) with organization {org}", 
-                    user.Id, user.Email, user.OrganizationId);
+                identity = new ClaimsIdentity(
+                    authenticationType: principal.Identity?.AuthenticationType ?? "JitProvisioning");
+                principal.AddIdentity(identity);
             }
+
+            var identityProvider = ResolveIdentityProvider(claims, principal);
+
+            // Add user metadata claims
+            AddClaimIfMissing(identity, "user_id", user.Id);
+            AddClaimIfMissing(identity, "user_sub", user.Sub);
+            AddClaimIfMissing(identity, "user_email", user.Email ?? "unknown@example.com");
+            AddClaimIfMissing(identity, "user_display_name", user.DisplayName ?? "Unknown User");
+            AddClaimIfMissing(identity, "user_organization", user.OrganizationId ?? "UNKNOWN");
+            AddClaimIfMissing(identity, "user_organization_name", await ResolveOrganizationNameAsync(user.OrganizationId));
+            AddClaimIfMissing(identity, "user_status", user.Status.ToString());
+            AddClaimIfMissing(identity, "user_created_at", user.CreatedAt.ToString("O"));
+            AddClaimIfMissing(identity, "user_last_access_at", user.LastAccessAt.ToString("O"));
+
+            // Add identity provider claim (used by /me and smoke tests)
+            if (!string.IsNullOrEmpty(identityProvider))
+            {
+                AddClaimIfMissing(identity, "identity_provider", identityProvider);
+            }
+            
+            // Add roles if assigned
+            var roles = await GetUserRolesAsync(user.Id);
+            foreach (var role in roles)
+            {
+                AddRoleIfMissing(identity, role);
+            }
+
+            _logger.LogInformation("JIT provisioned user {userId} ({email}) with organization {org}", 
+                user.Id, user.Email, user.OrganizationId);
 
             return principal;
         }

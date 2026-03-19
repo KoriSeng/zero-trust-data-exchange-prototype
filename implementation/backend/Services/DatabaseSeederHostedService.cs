@@ -13,12 +13,18 @@ public class DatabaseSeederHostedService : IHostedService
     private readonly IDataService _dataService;
     private readonly ILogger<DatabaseSeederHostedService> _logger;
     private readonly IMongoClient _mongoClient;
+    private readonly IConfiguration _configuration;
 
-    public DatabaseSeederHostedService(IDataService dataService, ILogger<DatabaseSeederHostedService> logger, IMongoClient mongoClient)
+    public DatabaseSeederHostedService(
+        IDataService dataService,
+        ILogger<DatabaseSeederHostedService> logger,
+        IMongoClient mongoClient,
+        IConfiguration configuration)
     {
         _dataService = dataService;
         _mongoClient = mongoClient;
         _logger = logger;
+        _configuration = configuration;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -68,6 +74,10 @@ public class DatabaseSeederHostedService : IHostedService
         _logger.LogInformation("Creating organizations...");
         var orgAId = Guid.NewGuid().ToString();
         var orgBId = Guid.NewGuid().ToString();
+        var orgAGroupName = _configuration["SeedData:OrgA:CognitoGroupName"] ?? "IDP-A";
+        var orgBGroupName = _configuration["SeedData:OrgB:CognitoGroupName"] ?? "IDP-B";
+        var orgAIssuer = _configuration["SeedData:OrgA:IdpIssuer"] ?? "http://localhost:9001";
+        var orgBIssuer = _configuration["SeedData:OrgB:IdpIssuer"] ?? "http://localhost:9002";
 
         var organizations = new[]
         {
@@ -77,8 +87,9 @@ public class DatabaseSeederHostedService : IHostedService
                 Name = "Organization A (Data Custodian)",
                 ShortName = "ORG-A",
                 CognitoIdpName = "IDP-A",
-                CognitoGroupName = "ap-southeast-1_xxxxx_IDP-A",
-                IdpIssuer = "http://localhost:9001",
+                CognitoGroupName = orgAGroupName,
+                IdpIssuer = orgAIssuer,
+                ContactEmail = "a.approvals@org-a.example.com",
                 Status = OrganizationStatus.Active,
                 OnboardedAt = DateTime.UtcNow
             },
@@ -88,8 +99,9 @@ public class DatabaseSeederHostedService : IHostedService
                 Name = "Organization B (Data Readers)",
                 ShortName = "ORG-B",
                 CognitoIdpName = "IDP-B",
-                CognitoGroupName = "ap-southeast-1_yyyyy_IDP-B",
-                IdpIssuer = "http://localhost:9002",
+                CognitoGroupName = orgBGroupName,
+                IdpIssuer = orgBIssuer,
+                ContactEmail = "b.approvals@org-b.example.com",
                 Status = OrganizationStatus.Active,
                 OnboardedAt = DateTime.UtcNow
             }
@@ -98,7 +110,7 @@ public class DatabaseSeederHostedService : IHostedService
         {
             await _dataService.PutOrganizationAsync(org);
         }
-        _logger.LogInformation("✓ Created 3 organizations");
+        _logger.LogInformation("✓ Created 2 organizations");
 
         // Get role IDs for user assignment
         var requesterRole = await _dataService.GetRoleByNameAsync(RoleNames.Requester);
@@ -118,7 +130,7 @@ public class DatabaseSeederHostedService : IHostedService
                 CognitoUsername = "IDP-A_a.alex",
                 FederatedSub = "A-001",
                 IdentityProvider = "IDP-A",
-                Issuer = "http://localhost:9001",
+                Issuer = orgAIssuer,
                 Email = "a.alex@org-a.example.com",
                 DisplayName = "Alex Kim",
                 OrganizationId = orgAId,
@@ -134,7 +146,7 @@ public class DatabaseSeederHostedService : IHostedService
                 CognitoUsername = "IDP-A_a.sam",
                 FederatedSub = "A-002",
                 IdentityProvider = "IDP-A",
-                Issuer = "http://localhost:9001",
+                Issuer = orgAIssuer,
                 Email = "a.sam@org-a.example.com",
                 DisplayName = "Sam Lee",
                 OrganizationId = orgAId,
@@ -151,7 +163,7 @@ public class DatabaseSeederHostedService : IHostedService
                 CognitoUsername = "IDP-B_b.alex",
                 FederatedSub = "B-001",
                 IdentityProvider = "IDP-B",
-                Issuer = "http://localhost:9002",
+                Issuer = orgBIssuer,
                 Email = "b.alex@org-b.example.com",
                 DisplayName = "Alex Kim", // Collision test: same name as IDP-A user
                 OrganizationId = orgBId,
@@ -167,7 +179,7 @@ public class DatabaseSeederHostedService : IHostedService
                 CognitoUsername = "IDP-B_b.jamie",
                 FederatedSub = "B-002",
                 IdentityProvider = "IDP-B",
-                Issuer = "http://localhost:9002",
+                Issuer = orgBIssuer,
                 Email = "b.jamie@org-b.example.com",
                 DisplayName = "Jamie Tan",
                 OrganizationId = orgBId,
@@ -184,7 +196,7 @@ public class DatabaseSeederHostedService : IHostedService
                 CognitoUsername = "IDP-A_admin",
                 FederatedSub = "ADMIN-001",
                 IdentityProvider = "IDP-A",
-                Issuer = "http://localhost:9001",
+                Issuer = orgAIssuer,
                 Email = "admin@org-custodian.example.com",
                 DisplayName = "System Administrator",
                 OrganizationId = orgAId,
@@ -292,6 +304,81 @@ Effective Date: " + DateTime.UtcNow.ToString("yyyy-MM-dd"),
         };
         await _dataService.PutRequestAsync(denyRequest);
         _logger.LogInformation("✓ Created 2 sample requests");
+
+        _logger.LogInformation("Creating dataset catalog items...");
+        var datasetCatalogItems = new[]
+        {
+            new DatasetCatalogItem
+            {
+                Id = Guid.NewGuid().ToString(),
+                DatasetId = "dataset-genomic-2024",
+                Name = "Genomic Research Dataset 2024",
+                Summary = "Whole-genome variant calls with phenotypic labels for 12,500 synthetic cohorts.",
+                DataOwnerOrg = orgBId,
+                DataOwnerOrgShortName = "ORG-B",
+                DataOwnerOrgName = "Organization B (Data Readers)",
+                ObjectKeys = new List<string>
+                {
+                    "datasets/genomic-2024/variants-part-001.parquet",
+                    "datasets/genomic-2024/variants-part-002.parquet",
+                    "datasets/genomic-2024/sample-manifest.csv"
+                },
+                ThumbnailObjectKey = "thumbnails/genomic-2024.png",
+                Tags = new List<string> { "genomics", "variant-calls", "parquet" },
+                RecordCount = 12500,
+                LastUpdatedAt = DateTime.UtcNow.AddDays(-4),
+                CreatedAt = DateTime.UtcNow.AddDays(-20),
+                IsPublished = true
+            },
+            new DatasetCatalogItem
+            {
+                Id = Guid.NewGuid().ToString(),
+                DatasetId = "dataset-proteomics-2024",
+                Name = "Proteomics Research Dataset 2024",
+                Summary = "Synthetic protein abundance matrices for therapy-response benchmarking.",
+                DataOwnerOrg = orgBId,
+                DataOwnerOrgShortName = "ORG-B",
+                DataOwnerOrgName = "Organization B (Data Readers)",
+                ObjectKeys = new List<string>
+                {
+                    "datasets/proteomics-2024/abundance-matrix.tsv",
+                    "datasets/proteomics-2024/feature-dictionary.json"
+                },
+                ThumbnailObjectKey = "thumbnails/proteomics-2024.png",
+                Tags = new List<string> { "proteomics", "biomarkers", "tsv" },
+                RecordCount = 8600,
+                LastUpdatedAt = DateTime.UtcNow.AddDays(-2),
+                CreatedAt = DateTime.UtcNow.AddDays(-16),
+                IsPublished = true
+            },
+            new DatasetCatalogItem
+            {
+                Id = Guid.NewGuid().ToString(),
+                DatasetId = "dataset-imaging-ct-2025",
+                Name = "CT Imaging Cohort 2025",
+                Summary = "Anonymized synthetic thoracic CT slices with derived segmentation masks.",
+                DataOwnerOrg = orgBId,
+                DataOwnerOrgShortName = "ORG-B",
+                DataOwnerOrgName = "Organization B (Data Readers)",
+                ObjectKeys = new List<string>
+                {
+                    "datasets/imaging-ct-2025/ct-series-index.csv",
+                    "datasets/imaging-ct-2025/segmentation-labels.jsonl"
+                },
+                ThumbnailObjectKey = "thumbnails/imaging-ct-2025.png",
+                Tags = new List<string> { "imaging", "ct", "segmentation" },
+                RecordCount = 4200,
+                LastUpdatedAt = DateTime.UtcNow.AddDays(-1),
+                CreatedAt = DateTime.UtcNow.AddDays(-10),
+                IsPublished = true
+            }
+        };
+
+        foreach (var dataset in datasetCatalogItems)
+        {
+            await _dataService.PutDatasetCatalogItemAsync(dataset);
+        }
+        _logger.LogInformation("✓ Created {count} dataset catalog items", datasetCatalogItems.Length);
 
         _logger.LogInformation("\n========================================");
         _logger.LogInformation("Database initialized successfully!");

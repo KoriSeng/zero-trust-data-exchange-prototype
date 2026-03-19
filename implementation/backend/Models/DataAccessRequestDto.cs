@@ -78,9 +78,14 @@ public class DataAccessRequestResponse
 public class ApproveRequestDto
 {
     /// <summary>
-    /// Approval decision
+    /// Legacy approval decision flag (ignored by API logic)
     /// </summary>
     public bool Approved { get; set; }
+
+    /// <summary>
+    /// One-time approval code sent to the data owner email
+    /// </summary>
+    public string ApprovalCode { get; set; } = string.Empty;
 
     /// <summary>
     /// Approval reason/comments
@@ -115,8 +120,8 @@ public class DenyRequestDto
 public class RedeemRequestDto
 {
     /// <summary>
-    /// One-time password received after approval
+    /// Legacy OTP field retained for backward compatibility
     /// </summary>
-    public string Otp { get; set; } = null!;
+    public string? Otp { get; set; }
 }
 

@@ -9,3 +9,12 @@ project_name = "zero-trust-prototype"
 # DocumentDB master password — required for backend Lambda deployment
 # Must be 8-100 characters and not contain / " @ or spaces
 docdb_master_password = "change-me-strong-password-1"
+
+# Optional Step Functions state machine ARN used by backend approval workflow and
+# conditional Step Functions log group creation.
+# step_functions_approval_arn = "arn:aws:states:ap-southeast-1:123456789012:stateMachine:zero-trust-approval"
+
+# Optional: disable shared CloudWatch Logs CMK creation/wiring for prototype testing.
+# enable_logs_kms_cmk = false
+
+# OTP email delivery is simulated in-app for this PoC (no SES variables required).

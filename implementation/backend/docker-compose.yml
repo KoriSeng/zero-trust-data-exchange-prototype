@@ -39,13 +39,12 @@ services:
     environment:
       SERVICES: s3,stepfunctions,iam,logs
       DEBUG: 0
-      DATA_DIR: /tmp/localstack/data
-      DOCKER_HOST: unix:///var/run/docker.sock
+
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_DEFAULT_REGION: us-east-1
     volumes:
-      - "${TMPDIR:-/tmp}/localstack:/tmp/localstack"
+
       - /var/run/docker.sock:/var/run/docker.sock
       - ./scripts/localstack-init.sh:/docker-entrypoint-initaws.d/init-aws.sh
     networks:

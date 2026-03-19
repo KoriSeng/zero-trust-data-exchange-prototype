@@ -1,6 +1,6 @@
 ﻿import express from 'express';
 import crypto from 'crypto';
-import { SignJWT } from 'jose';
+import { SignJWT, decodeJwt } from 'jose';
 
 import { getIssuerSigningKey } from './issuerConfig.js';
 import { findUser } from './users.js';
@@ -19,12 +19,13 @@ export function buildIssuerRouter({ issuerDisplayName, userSet }) {
       authorization_endpoint: `${issuer}/authorize`,
       token_endpoint: `${issuer}/token`,
       jwks_uri: `${issuer}/jwks`,
+      userinfo_endpoint: `${issuer}/userinfo`,
       response_types_supported: ['code'],
       subject_types_supported: ['public'],
       id_token_signing_alg_values_supported: ['RS256'],
       scopes_supported: ['openid', 'profile', 'email'],
-      claims_supported: ['sub', 'name', 'iss'],
-      token_endpoint_auth_methods_supported: ['client_secret_post']
+      claims_supported: ['sub', 'name', 'email', 'preferred_username', 'iss'],
+      token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic']
     });
   });
 
@@ -92,11 +93,12 @@ export function buildIssuerRouter({ issuerDisplayName, userSet }) {
       sub: user.sub,
       displayName: user.displayName,
       username: user.username,
+      email: user.email ?? `${user.username}@example.com`,
       createdAt: Date.now(),
       userSet
     });
 
-    const redirect = new URL(String(redirect_uri));
+    const redirect = normalizeRedirectUri(String(redirect_uri));
     redirect.searchParams.set('code', code);
     if (state) redirect.searchParams.set('state', String(state));
 
@@ -105,12 +107,24 @@ export function buildIssuerRouter({ issuerDisplayName, userSet }) {
 
   router.post('/token', async (req, res) => {
     const { grant_type, code, redirect_uri, client_id, client_secret } = req.body;
+    let resolvedClientId = client_id;
+    let resolvedClientSecret = client_secret;
+    const authHeader = req.headers.authorization;
+
+    if ((!resolvedClientId || !resolvedClientSecret) && typeof authHeader === 'string' && authHeader.startsWith('Basic ')) {
+      const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf8');
+      const separator = decoded.indexOf(':');
+      if (separator > -1) {
+        resolvedClientId = decoded.slice(0, separator);
+        resolvedClientSecret = decoded.slice(separator + 1);
+      }
+    }
 
     if (grant_type !== 'authorization_code') {
       return res.status(400).json({ error: 'unsupported_grant_type' });
     }
 
-    if (!client_id || !client_secret) {
+    if (!resolvedClientId || !resolvedClientSecret) {
       return res.status(401).json({ error: 'invalid_client' });
     }
 
@@ -122,6 +136,9 @@ export function buildIssuerRouter({ issuerDisplayName, userSet }) {
     if (redirect_uri && String(redirect_uri) !== String(record.redirect_uri)) {
       return res.status(400).json({ error: 'invalid_grant' });
     }
+    if (String(resolvedClientId) !== String(record.client_id)) {
+      return res.status(400).json({ error: 'invalid_grant' });
+    }
 
     codes.delete(code);
 
@@ -131,22 +148,28 @@ export function buildIssuerRouter({ issuerDisplayName, userSet }) {
     const now = Math.floor(Date.now() / 1000);
     const idToken = await new SignJWT({
       name: record.displayName,
-      preferred_username: record.username
+      preferred_username: record.username,
+      email: record.email
     })
       .setProtectedHeader({ alg: 'RS256', kid: publicJwk.kid, typ: 'JWT' })
       .setIssuedAt(now)
       .setExpirationTime(now + 60 * 60)
       .setIssuer(issuer)
-      .setAudience(client_id)
+      .setAudience(resolvedClientId)
       .setSubject(record.sub)
       .sign(privateKey);
 
-    const accessToken = await new SignJWT({ scope: record.scope })
+    const accessToken = await new SignJWT({
+      scope: record.scope,
+      preferred_username: record.username,
+      name: record.displayName,
+      email: record.email
+    })
       .setProtectedHeader({ alg: 'RS256', kid: publicJwk.kid, typ: 'JWT' })
       .setIssuedAt(now)
       .setExpirationTime(now + 60 * 30)
       .setIssuer(issuer)
-      .setAudience(client_id)
+      .setAudience(resolvedClientId)
       .setSubject(record.sub)
       .sign(privateKey);
 
@@ -158,10 +181,42 @@ export function buildIssuerRouter({ issuerDisplayName, userSet }) {
     });
   });
 
+  router.get('/userinfo', (req, res) => {
+    const authHeader = req.headers.authorization ?? '';
+    if (!String(authHeader).startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'invalid_token' });
+    }
+
+    try {
+      const payload = decodeJwt(String(authHeader).slice(7));
+      return res.json({
+        sub: payload.sub,
+        name: payload.name,
+        email: payload.email,
+        preferred_username: payload.preferred_username
+      });
+    } catch {
+      return res.status(401).json({ error: 'invalid_token' });
+    }
+  });
+
   function getBaseUrl(req) {
+    if (process.env.ISSUER_URL) {
+      return process.env.ISSUER_URL;
+    }
     const proto = (req.headers['x-forwarded-proto'] ?? req.protocol);
     const host = req.headers['x-forwarded-host'] ?? req.get('host');
     return `${proto}://${host}`;
+  }
+
+  function normalizeRedirectUri(rawRedirectUri) {
+    const redirect = new URL(rawRedirectUri);
+    // LocalStack may send zero-trust-local:4566 for idpresponse callbacks, which is not browser-routable.
+    if (redirect.host === 'zero-trust-local:4566') {
+      redirect.protocol = 'https:';
+      redirect.host = 'localhost.localstack.cloud:4566';
+    }
+    return redirect;
   }
 
   return router;

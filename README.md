@@ -76,6 +76,39 @@ The Project Charter acts as the authorising document, with detailed artefacts ma
 This repository is intended for **academic assessment and learning**.
 It is not designed or maintained for operational or commercial use.
 
+## Tooling Prerequisites (Local Development)
+
+- Node.js
+- AWS CLI
+- OpenTofu (`tofu`)
+- .NET SDK 10
+- `zip` utility (available in your bash/WSL environment)
+- Linux-compatible shell environment (Linux/macOS or WSL Ubuntu on Windows)
+
+---
+
+## Simulated IdP Test Users (Development Only)
+
+The prototype includes hardcoded users for the simulated OIDC providers used in local development and demos.
+
+### IDP-A Users (`implementation/idp-a/src/users.js`)
+
+| Username | Password | Display Name | Status |
+|---|---|---|---|
+| `a.alex` | `pass-a-alex` | Alex Kim | active |
+| `a.sam` | `pass-a-sam` | Sam Lee | active |
+| `a.pat` | `pass-a-pat` | Pat Chen | deactivated |
+
+### IDP-B Users (`implementation/idp-b/src/users.js`)
+
+| Username | Password | Display Name | Status |
+|---|---|---|---|
+| `b.alex` | `pass-b-alex` | Alex Kim | active |
+| `b.jamie` | `pass-b-jamie` | Jamie Tan | active |
+| `b.riley` | `pass-b-riley` | Riley Ng | deactivated |
+
+> These are simulated credentials for this academic prototype only; never reuse in real systems.
+
 ---
 
 ## Acknowledgements

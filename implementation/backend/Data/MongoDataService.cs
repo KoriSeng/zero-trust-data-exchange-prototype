@@ -6,7 +6,7 @@ using ZeroTrust.Backend.Models;
 
 /// <summary>
 /// MongoDB implementation of IDataService for local development and testing
-/// In production, this would be replaced with DynamoDB implementation
+/// Production deployment uses DocumentDB with the same MongoDB wire protocol
 /// </summary>
 public class MongoDataService : IDataService
 {
@@ -17,7 +17,9 @@ public class MongoDataService : IDataService
     private readonly IMongoCollection<Organization> _organizationsCollection;
     private readonly IMongoCollection<UserAgreement> _agreementsCollection;
     private readonly IMongoCollection<DataAccessRequest> _requestsCollection;
+    private readonly IMongoCollection<DatasetCatalogItem> _datasetCatalogCollection;
     private readonly IMongoCollection<AuditEvent> _auditCollection;
+    private readonly IMongoCollection<OtpRecord> _otpRecordsCollection;
 
     public MongoDataService(IMongoClient mongoClient, string databaseName = "zero_trust_db")
     {
@@ -29,7 +31,9 @@ public class MongoDataService : IDataService
         _organizationsCollection = _database.GetCollection<Organization>("organizations");
         _agreementsCollection = _database.GetCollection<UserAgreement>("user_agreements");
         _requestsCollection = _database.GetCollection<DataAccessRequest>("requests");
+        _datasetCatalogCollection = _database.GetCollection<DatasetCatalogItem>("dataset_catalog");
         _auditCollection = _database.GetCollection<AuditEvent>("audit_events");
+        _otpRecordsCollection = _database.GetCollection<OtpRecord>("otp_records");
         
         InitializeIndexes();
     }
@@ -96,11 +100,33 @@ public class MongoDataService : IDataService
             )
         );
 
+        _datasetCatalogCollection.Indexes.CreateOne(
+            new CreateIndexModel<DatasetCatalogItem>(
+                Builders<DatasetCatalogItem>.IndexKeys.Ascending(d => d.DatasetId),
+                new CreateIndexOptions { Unique = true }
+            )
+        );
+
+        _datasetCatalogCollection.Indexes.CreateOne(
+            new CreateIndexModel<DatasetCatalogItem>(
+                Builders<DatasetCatalogItem>.IndexKeys.Ascending(d => d.IsPublished)
+                    .Ascending(d => d.LastUpdatedAt)
+            )
+        );
+
         // AuditEvents: Query by request_id for audit trail
         _auditCollection.Indexes.CreateOne(
             new CreateIndexModel<AuditEvent>(
                 Builders<AuditEvent>.IndexKeys.Ascending(e => e.RequestId)
                     .Descending(e => e.CreatedAt)
+            )
+        );
+
+        // OTP records: query latest OTP per request and update by id
+        _otpRecordsCollection.Indexes.CreateOne(
+            new CreateIndexModel<OtpRecord>(
+                Builders<OtpRecord>.IndexKeys.Ascending(o => o.RequestId)
+                    .Descending(o => o.CreatedAt)
             )
         );
     }
@@ -317,6 +343,20 @@ public class MongoDataService : IDataService
             .ToListAsync();
     }
 
+    public async Task<List<DatasetCatalogItem>> GetPublishedDatasetCatalogItemsAsync(int limit = 200)
+    {
+        return await _datasetCatalogCollection
+            .Find(d => d.IsPublished)
+            .SortByDescending(d => d.LastUpdatedAt)
+            .Limit(limit)
+            .ToListAsync();
+    }
+
+    public async Task PutDatasetCatalogItemAsync(DatasetCatalogItem item)
+    {
+        await _datasetCatalogCollection.InsertOneAsync(item);
+    }
+
     public async Task<bool> CreateDataAccessRequestAsync(DataAccessRequest request)
     {
         try
@@ -358,5 +398,64 @@ public class MongoDataService : IDataService
             .SortByDescending(e => e.CreatedAt)
             .Limit(limit)
             .ToListAsync();
+    }
+
+    // ==================== OTP Operations ====================
+
+    public async Task CreateOtpRecordAsync(OtpRecord record)
+    {
+        await _otpRecordsCollection.InsertOneAsync(record);
+    }
+
+    public async Task<OtpRecord?> GetLatestOtpRecordAsync(string requestId)
+    {
+        return await _otpRecordsCollection
+            .Find(r => r.RequestId == requestId)
+            .SortByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task UpdateOtpRecordAsync(OtpRecord record)
+    {
+        await _otpRecordsCollection.ReplaceOneAsync(r => r.Id == record.Id, record);
+    }
+
+    public async Task<bool> TryMarkOtpUsedAsync(string otpRecordId, int expectedAttemptCount)
+    {
+        var filter = Builders<OtpRecord>.Filter.And(
+            Builders<OtpRecord>.Filter.Eq(r => r.Id, otpRecordId),
+            Builders<OtpRecord>.Filter.Eq(r => r.Used, false),
+            Builders<OtpRecord>.Filter.Eq(r => r.LockedAt, null),
+            Builders<OtpRecord>.Filter.Eq(r => r.AttemptCount, expectedAttemptCount));
+
+        var update = Builders<OtpRecord>.Update.Set(r => r.Used, true);
+        var result = await _otpRecordsCollection.UpdateOneAsync(filter, update);
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<bool> TryIncrementOtpAttemptAsync(string otpRecordId, int expectedAttemptCount, DateTime? lockedAt)
+    {
+        var filter = Builders<OtpRecord>.Filter.And(
+            Builders<OtpRecord>.Filter.Eq(r => r.Id, otpRecordId),
+            Builders<OtpRecord>.Filter.Eq(r => r.Used, false),
+            Builders<OtpRecord>.Filter.Eq(r => r.LockedAt, null),
+            Builders<OtpRecord>.Filter.Eq(r => r.AttemptCount, expectedAttemptCount));
+
+        var update = Builders<OtpRecord>.Update
+            .Set(r => r.AttemptCount, expectedAttemptCount + 1)
+            .Set(r => r.LockedAt, lockedAt);
+
+        var result = await _otpRecordsCollection.UpdateOneAsync(filter, update);
+        return result.ModifiedCount == 1;
+    }
+
+    public async Task<int> CountOtpRecordsSinceAsync(string requestId, DateTime sinceUtc)
+    {
+        var filter = Builders<OtpRecord>.Filter.And(
+            Builders<OtpRecord>.Filter.Eq(r => r.RequestId, requestId),
+            Builders<OtpRecord>.Filter.Gte(r => r.CreatedAt, sinceUtc));
+
+        var count = await _otpRecordsCollection.CountDocumentsAsync(filter);
+        return count > int.MaxValue ? int.MaxValue : (int)count;
     }
 }

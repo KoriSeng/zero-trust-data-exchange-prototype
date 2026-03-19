@@ -70,6 +70,12 @@ variable "authorization_type" {
   default     = "NONE"
 }
 
+variable "logs_kms_key_arn" {
+  description = "KMS key ARN used to encrypt CloudWatch log groups. Leave empty to use the AWS-managed default key."
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Additional tags for resources"
   type        = map(string)

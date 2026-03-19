@@ -107,6 +107,18 @@ public class DataAccessRequest
     public DateTime? ApprovedAt { get; set; }
 
     /// <summary>
+    /// Cognito sub of approver
+    /// </summary>
+    [BsonElement("approved_by")]
+    public string? ApprovedBy { get; set; }
+
+    /// <summary>
+    /// Optional approval comments
+    /// </summary>
+    [BsonElement("approval_comments")]
+    public string? ApprovalComments { get; set; }
+
+    /// <summary>
     /// Cognito sub of denier
     /// </summary>
     [BsonElement("denied_by")]

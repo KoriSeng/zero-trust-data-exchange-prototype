@@ -4,23 +4,32 @@ This directory contains the Terraform/OpenTofu configuration for deploying the Z
 
 ## Architecture Overview
 
-The infrastructure deploys two OIDC Identity Providers as AWS Lambda functions with public HTTPS endpoints:
+The infrastructure deploys:
+
+- two OIDC Identity Providers as AWS Lambda functions with public HTTPS endpoints
+- Cognito with federated IdP configuration for Hosted UI sign-in
+- backend API on ECS/Fargate + ALB + DocumentDB
+- static SPA hosting with private S3 origin + CloudFront distribution
 
 ```
-IDPs (Lambda Functions with Function URLs)
-├── IDP-A (nodejs-express)
-└── IDP-B (nodejs-express)
+Identity & API
+├── IDP-A (Lambda Function URL)
+├── IDP-B (Lambda Function URL)
+├── Cognito User Pool + App Client
+└── Backend ECS + ALB
 
-Shared Resources:
-├── IAM Role (Lambda execution)
-└── CloudWatch Logs
+Data & Frontend
+├── DocumentDB (backend persistence)
+├── S3 PoC data bucket
+└── SPA hosting (S3 + CloudFront OAC)
 ```
 
 ## Directory Structure
 
 ```
 infrastructure/
-├── main.tf                # Main configuration (provider, root resources)
+├── main.tf                # Main configuration (provider, root modules)
+├── spa.tf                 # SPA static hosting resources (S3 + CloudFront)
 ├── variables.tf           # Input variables
 ├── outputs.tf             # Output values
 ├── README.md              # This file
@@ -119,6 +128,11 @@ project_name = "zero-trust-prototype"
 
 **Never commit `terraform.tfvars` with sensitive data!**
 
+### OTP debug note
+
+For this PoC flow, OTP delivery is simulated. The backend returns a debug email preview payload
+to the SPA instead of sending external emails, so real inboxes are not required for demo users.
+
 ### Environment Variables (AWS)
 
 ```bash
@@ -161,14 +175,19 @@ For detailed module documentation, see [modules/oidc_idp/README.md](modules/oidc
 
 After deployment, the following outputs are available:
 
-| Output                | Description                    |
-| --------------------- | ------------------------------ |
-| `environment`         | Deployment environment         |
-| `region`              | AWS region                     |
-| `idp_a_function_name` | Lambda function name for IDP-A |
-| `idp_a_function_url`  | Public HTTPS URL for IDP-A     |
-| `idp_b_function_name` | Lambda function name for IDP-B |
-| `idp_b_function_url`  | Public HTTPS URL for IDP-B     |
+| Output                           | Description                               |
+| -------------------------------- | ----------------------------------------- |
+| `environment`                    | Deployment environment                    |
+| `aws_region`                     | AWS region                                |
+| `idp_a_function_name`            | Lambda function name for IDP-A            |
+| `idp_a_function_url`             | Public HTTPS URL for IDP-A                |
+| `idp_b_function_name`            | Lambda function name for IDP-B            |
+| `idp_b_function_url`             | Public HTTPS URL for IDP-B                |
+| `backend_api_url`                | API Gateway invoke URL for backend        |
+| `cognito_hosted_ui_url`          | Cognito hosted UI base URL                |
+| `spa_bucket_name`                | S3 bucket name for SPA assets             |
+| `spa_cloudfront_distribution_id` | CloudFront distribution ID for invalidation |
+| `spa_cloudfront_url`             | Public CloudFront URL for SPA             |
 
 ## State Management
 
@@ -176,7 +195,7 @@ After deployment, the following outputs are available:
 
 Terraform state is stored locally in `terraform.tfstate`. This is suitable for development but **not recommended for production**.
 
-### Remote State (S3 + DynamoDB Locking)
+### Remote State (S3 Only)
 
 This repository is configured with a **partial backend** (`backend "s3" {}` in `main.tf`).
 Set concrete backend values in a local `backend.hcl` file.
@@ -187,7 +206,7 @@ Set concrete backend values in a local `backend.hcl` file.
 cp backend.hcl.example backend.hcl
 ```
 
-2. Edit `backend.hcl` with your real values (`bucket`, `key`, `region`, `dynamodb_table`).
+2. Edit `backend.hcl` with your real values (`bucket`, `key`, `region`).
 
 3. Ensure LocalStack endpoint overrides are not set:
 
@@ -198,7 +217,7 @@ unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3 AWS_ENDPOINT_URL_STS
 4. Initialize and migrate existing local state to S3:
 
 ```bash
-tofu init -reconfigure -migrate-state -backend-config=backend.hcl
+tofu init -reconfigure -backend-config backend.hcl
 ```
 
 5. Verify backend and state:
@@ -208,13 +227,20 @@ tofu state list
 tofu plan
 ```
 
-If this is your first backend setup, create the S3 bucket and DynamoDB lock table first.
+If this is your first backend setup, create the S3 bucket first.
+This repository includes a CloudFormation bootstrap template at:
 
-Example lock table schema:
+- `infrastructure/bootstrap/terraform-state-bootstrap.yaml`
 
-- Table name: `terraform-state-lock`
-- Partition key: `LockID` (String)
-- Billing mode: on-demand
+Example:
+
+```bash
+aws cloudformation deploy \
+  --stack-name zero-trust-tf-backend \
+  --template-file infrastructure/bootstrap/terraform-state-bootstrap.yaml \
+  --parameter-overrides StateBucketName=<globally-unique-bucket-name> StatePrefix=zero-trust-prototype/dev \
+  --region ap-southeast-1
+```
 
 ### State Drift Recovery (Existing AWS Resources)
 
@@ -294,12 +320,11 @@ aws sts get-caller-identity
 
 ## Next Steps
 
-After deploying the IDPs:
+After deploying infrastructure:
 
-1. Test the OIDC endpoints using the Function URLs
-2. Configure AWS Cognito to use these IDPs as identity providers
-3. Set up S3 buckets for data storage
-4. Configure API Gateway and backend Lambda functions
+1. `tofu apply` automatically builds and uploads the SPA with Terraform-derived environment values.
+2. Terraform triggers a CloudFront invalidation after SPA upload.
+3. Validate end-to-end login/approval/redeem flow through the CloudFront URL.
 
 ## References
 

@@ -1,0 +1,192 @@
+# Zero Trust Data Exchange — Full Local Stack
+#
+# Requires LocalStack Pro. Set LOCALSTACK_AUTH_TOKEN in a root .env file.
+#
+# Usage:
+#   docker-compose up -d                   # Start all backend services
+#   docker-compose --profile spa up -d     # Also start the SPA container
+#   ./scripts/generate-spa-env.sh          # Write implementation/spa/.env.local
+#   cd implementation/spa && npm run dev   # Run SPA on host (recommended for dev)
+
+version: "3.8"
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  mongodb:
+    image: mongo:7
+    container_name: zero-trust-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: zero_trust_db
+    volumes:
+      - mongodb_data:/data/db
+      - ./implementation/backend/scripts/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - zero-trust-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: zero-trust-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017
+      ME_CONFIG_BASICAUTH: "false"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - zero-trust-network
+
+  localstack:
+    image: localstack/localstack-pro:latest
+    container_name: zero-trust-localstack
+    restart: unless-stopped
+    ports:
+      - "4566:4566"
+      - "4510-4559:4510-4559"
+    environment:
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:?LOCALSTACK_AUTH_TOKEN is required — add it to your .env file}
+      SERVICES: s3,stepfunctions,iam,ses,sesv2,cognito-idp,logs,cloudfront,cloudcontrol
+      PERSISTENCE: 1
+      # localhost.localstack.cloud is a public wildcard DNS → 127.0.0.1 with a valid TLS cert,
+      # so Amplify's hardcoded https:// works without any manual certificate trust steps.
+      LOCALSTACK_HOST: localhost.localstack.cloud:4566
+      EXTRA_CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:4173,http://host.docker.internal:9001,http://host.docker.internal:9002"
+      DEBUG: 0
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      DOCKER_HOST: unix:///var/run/docker.sock
+      IDP_A_ISSUER_URL: http://host.docker.internal:9001
+      IDP_B_ISSUER_URL: http://host.docker.internal:9002
+    volumes:
+      - ./localstack-data:/var/lib/localstack
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/01-init.sh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    # host.docker.internal is provided automatically by Docker Desktop (Windows/Mac).
+    # The extra_hosts entry below ensures it also works on plain Linux Docker Engine.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - zero-trust-network
+    healthcheck:
+      test: ["CMD", "awslocal", "s3", "ls"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  # ── Identity Providers ───────────────────────────────────────────────────────
+  # The IDPs are OIDC providers that LocalStack Cognito federates to.
+  # ISSUER_URL must be reachable from both LocalStack (container→host→container
+  # via host.docker.internal) and the user's browser (host.docker.internal
+  # resolves to 127.0.0.1 on Docker Desktop for Windows/Mac).
+
+  idp-a:
+    build:
+      context: implementation/idp-a
+    container_name: zero-trust-idp-a
+    restart: unless-stopped
+    ports:
+      - "9001:9001"
+    environment:
+      PORT: 9001
+      ISSUER_URL: http://host.docker.internal:9001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - zero-trust-network
+
+  idp-b:
+    build:
+      context: implementation/idp-b
+    container_name: zero-trust-idp-b
+    restart: unless-stopped
+    ports:
+      - "9002:9002"
+    environment:
+      PORT: 9002
+      ISSUER_URL: http://host.docker.internal:9002
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - zero-trust-network
+
+  # ── Backend API ──────────────────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: implementation/backend
+    container_name: zero-trust-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5000
+      ConnectionStrings__MongoDB: mongodb://mongodb:27017
+      MongoDb__DatabaseName: zero_trust_db
+      AWS__Region: us-east-1
+      AWS__ServiceUrl: http://localstack:4566
+      AWS__S3__DataBucket: zero-trust-data
+      AWS__S3__RequestsBucket: zero-trust-requests
+      AWS__StepFunctions__ApprovalWorkflowArn: arn:aws:states:us-east-1:000000000000:stateMachine:ZeroTrustApprovalWorkflow
+      AWS__StepFunctions__Enabled: "true"
+      AWS__SES__FromAddress: noreply@example.com
+      AWS__SES__Enabled: "false"
+      Jwt__ValidateSignature: "false"
+      Jwt__ValidateIssuer: "false"
+      Jwt__ValidateAudience: "false"
+      Jwt__ValidateLifetime: "false"
+      Cors__AllowedOrigins: "http://localhost:5173,http://localhost:4173"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks:
+      - zero-trust-network
+
+  # ── SPA (optional — use --profile spa) ──────────────────────────────────────
+  # Recommended for most workflows: run the SPA on the host instead.
+  #   ./scripts/generate-spa-env.sh   # populate .env.local
+  #   cd implementation/spa && npm run dev
+
+  spa:
+    profiles: ["spa"]
+    build:
+      context: implementation/spa
+    container_name: zero-trust-spa
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./localstack-data:/localstack-data:ro
+    depends_on:
+      localstack:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - zero-trust-network
+
+# ── Volumes & Networks ──────────────────────────────────────────────────────────
+
+volumes:
+  mongodb_data:
+
+networks:
+  zero-trust-network:
+    driver: bridge

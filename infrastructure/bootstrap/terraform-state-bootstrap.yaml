@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Bootstrap resources for Terraform/OpenTofu remote state (S3 only, single-user PoC)
+
+Parameters:
+  StateBucketName:
+    Type: String
+    Description: Globally unique S3 bucket name for Terraform/OpenTofu state
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  EnableVersioning:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+  StatePrefix:
+    Type: String
+    Description: State key prefix (folder-like path)
+    Default: zero-trust-prototype/dev
+
+Conditions:
+  UseVersioning: !Equals [!Ref EnableVersioning, 'true']
+
+Resources:
+  TerraformStateBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref StateBucketName
+      VersioningConfiguration:
+        Status: !If [UseVersioning, Enabled, Suspended]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  TerraformStateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TerraformStateBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${TerraformStateBucket}'
+              - !Sub 'arn:${AWS::Partition}:s3:::${TerraformStateBucket}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+Outputs:
+  StateBucketName:
+    Description: S3 bucket name for Terraform/OpenTofu state
+    Value: !Ref TerraformStateBucket
+  BackendConfigSnippet:
+    Description: Example backend config values for infrastructure/backend.hcl
+    Value: !Sub |
+      bucket         = "${TerraformStateBucket}"
+      key            = "${StatePrefix}/terraform.tfstate"
+      region         = "${AWS::Region}"
+      encrypt        = true

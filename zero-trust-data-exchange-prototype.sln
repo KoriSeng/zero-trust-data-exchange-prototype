@@ -8,6 +8,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "backend", "backend", "{8D8C
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZeroTrust.Backend", "implementation\backend\ZeroTrust.Backend.csproj", "{3FF0531A-2DD8-36A8-4296-135D11BFF8B4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZeroTrust.Backend.Tests", "implementation\backend.Tests\ZeroTrust.Backend.Tests.csproj", "{A6F06D56-74C0-4F59-8DAF-5E7B69C11A4E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -18,6 +20,10 @@ Global
 		{3FF0531A-2DD8-36A8-4296-135D11BFF8B4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3FF0531A-2DD8-36A8-4296-135D11BFF8B4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3FF0531A-2DD8-36A8-4296-135D11BFF8B4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A6F06D56-74C0-4F59-8DAF-5E7B69C11A4E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A6F06D56-74C0-4F59-8DAF-5E7B69C11A4E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A6F06D56-74C0-4F59-8DAF-5E7B69C11A4E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A6F06D56-74C0-4F59-8DAF-5E7B69C11A4E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -25,6 +31,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{8D8C14B7-A3A7-D227-14A9-E594036862F3} = {D596A9B8-B564-04A1-0652-AF983A8D2206}
 		{3FF0531A-2DD8-36A8-4296-135D11BFF8B4} = {8D8C14B7-A3A7-D227-14A9-E594036862F3}
+		{A6F06D56-74C0-4F59-8DAF-5E7B69C11A4E} = {8D8C14B7-A3A7-D227-14A9-E594036862F3}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {0ACB0C27-CA58-4D84-8DEE-202CBA51EFC3}

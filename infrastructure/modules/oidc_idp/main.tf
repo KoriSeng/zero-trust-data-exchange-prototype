@@ -11,6 +11,15 @@ data "archive_file" "idp_code" {
   ]
 }
 
+# Explicit log group — prevents Lambda auto-creating one with no retention policy
+resource "aws_cloudwatch_log_group" "idp" {
+  name              = "/aws/lambda/${var.project_name}-idp-${var.idp_name}"
+  retention_in_days = 30
+  kms_key_id        = var.logs_kms_key_arn != "" ? var.logs_kms_key_arn : null
+
+  tags = var.tags
+}
+
 # Lambda Function
 resource "aws_lambda_function" "idp" {
   filename         = data.archive_file.idp_code.output_path
@@ -31,6 +40,8 @@ resource "aws_lambda_function" "idp" {
   }
 
   tags = var.tags
+
+  depends_on = [aws_cloudwatch_log_group.idp]
 }
 
 # Function URL for IDP
@@ -47,11 +58,11 @@ resource "aws_lambda_function_url" "idp" {
 # Resource-based policy for public Lambda Function URL access
 # Required when authorization_type = "NONE" to allow unauthenticated access
 resource "aws_lambda_permission" "allow_public_access" {
-  count         = var.authorization_type == "NONE" ? 1 : 0
-  statement_id  = "AllowPublicAccess"
-  action        = "lambda:InvokeFunctionUrl"
-  function_name = aws_lambda_function.idp.function_name
-  principal     = "*"
+  count                  = var.authorization_type == "NONE" ? 1 : 0
+  statement_id           = "AllowPublicAccess"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.idp.function_name
+  principal              = "*"
   function_url_auth_type = "NONE"
 }
 
@@ -62,5 +73,4 @@ resource "aws_lambda_permission" "allow_public_invoke" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.idp.function_name
   principal     = "*"
-  
 }

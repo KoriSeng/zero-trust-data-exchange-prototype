@@ -41,7 +41,11 @@ resource "aws_cognito_identity_provider" "oidc" {
     authorize_scopes          = "openid email profile"
     client_id                 = each.value.client_id
     client_secret             = each.value.client_secret
-    oidc_issuer               = each.value.issuer_url
+    oidc_issuer               = trimsuffix(each.value.issuer_url, "/")
+    authorize_url             = "${trimsuffix(each.value.issuer_url, "/")}/authorize"
+    token_url                 = "${trimsuffix(each.value.issuer_url, "/")}/token"
+    jwks_uri                  = "${trimsuffix(each.value.issuer_url, "/")}/jwks"
+    attributes_url            = "${trimsuffix(each.value.issuer_url, "/")}/userinfo"
     attributes_request_method = "GET"
   }
 
@@ -57,7 +61,8 @@ resource "aws_cognito_user_pool_client" "main" {
   name         = "${local.user_pool_name}-client"
   user_pool_id = aws_cognito_user_pool.main.id
 
-  generate_secret = true
+  # Public SPA client (no client secret) so browser OAuth code exchange can succeed.
+  generate_secret = false
 
   # OAuth configuration
   allowed_oauth_flows_user_pool_client = true
@@ -72,6 +77,9 @@ resource "aws_cognito_user_pool_client" "main" {
     for idp in aws_cognito_identity_provider.oidc : idp.provider_name
   ]
 
+  # Disable username/password auth flows - only allow OAuth through identity providers
+  explicit_auth_flows = []
+
   # Token validity
   access_token_validity  = 60 # minutes
   id_token_validity      = 60 # minutes
@@ -81,11 +89,6 @@ resource "aws_cognito_user_pool_client" "main" {
     access_token  = "minutes"
     id_token      = "minutes"
     refresh_token = "days"
-  }
-
-  # Prevent destruction of client with secret
-  lifecycle {
-    ignore_changes = [generate_secret]
   }
 
   depends_on = [aws_cognito_identity_provider.oidc]

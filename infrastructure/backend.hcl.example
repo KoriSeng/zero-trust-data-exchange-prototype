@@ -1,12 +1,11 @@
 # Copy this file to backend.hcl (do not commit backend.hcl)
 # Then run:
-#   tofu init -reconfigure -migrate-state -backend-config=backend.hcl
+#   tofu init -reconfigure -backend-config backend.hcl
 
 bucket         = "your-terraform-state-bucket"
 key            = "zero-trust-prototype/dev/terraform.tfstate"
 region         = "ap-southeast-1"
 encrypt        = true
-dynamodb_table = "terraform-state-lock"
 
 # Optional hardening:
 # kms_key_id   = "arn:aws:kms:ap-southeast-1:123456789012:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"

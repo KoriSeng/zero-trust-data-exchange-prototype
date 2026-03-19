@@ -8,8 +8,8 @@ A C# .NET minimal API backend for zero-trust data exchange with approval workflo
 - **Framework**: ASP.NET Core Minimal APIs
 - **Compute**: AWS Lambda with API Gateway (production), local .NET runtime (development)
 - **Database**:
-  - **Production**: AWS DynamoDB
-  - **Local Development**: MongoDB (easier for local testing)
+  - **Production**: AWS DocumentDB (Mongo wire protocol)
+  - **Local Development**: MongoDB (schema-compatible)
 - **Authentication**: Cognito JWT (API Gateway validates signatures)
 - **Authorization**: Role-Based Access Control (Requester, DataOwner, Admin, Auditor)
 
@@ -132,10 +132,11 @@ curl -H "Authorization: Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxM
 - `POST /requests` - Submit new data access request (Requester)
 - `GET /requests/{id}` - Get request details
 - `GET /requests/pending` - Get pending requests for org (DataOwner/Admin)
-- `GET /requests/mine` - Get requester's requests (Requester)
-- `POST /requests/{id}/approve` - Approve request (DataOwner/Admin)
+- `GET /requests/my` - Get requester's requests (Requester)
+- `POST /requests/{id}/otp/send` - Generate approval OTP and return debug email preview payload (DataOwner/Admin, 429 throttled on cooldown/window limits)
+- `POST /requests/{id}/approve` - Approve request with `approvalCode` (DataOwner/Admin)
 - `POST /requests/{id}/deny` - Deny request (DataOwner/Admin)
-- `POST /requests/{id}/redeem` - Redeem OTP and get access (Requester)
+- `POST /requests/{id}/redeem` - Redeem approved request and get access URLs (Requester)
 
 ### User Agreements
 
@@ -172,6 +173,9 @@ For production (Lambda), use environment variables:
 
 - `MONGODB_CONNECTION_STRING` or AWS Secrets Manager
 - `DATABASE_NAME` (default: "zero_trust_db")
+- `AWS__SES__FromAddress` (verified SES sender)
+- `AWS__SES__ConfigurationSet` (SES configuration set name)
+- `AWS__SES__Enabled` (`false` by default in this PoC debug-email mode)
 
 ## Dependency Injection
 
@@ -184,7 +188,7 @@ All services are registered in `Program.cs`:
 
 ## Database Schema
 
-### MongoDB Collections (same schema for DynamoDB tables)
+### MongoDB Collections (DocumentDB-compatible)
 
 - **users** - User accounts from Cognito
 - **roles** - RBAC roles
@@ -198,19 +202,10 @@ All services are registered in `Program.cs`:
 
 ### AWS Lambda Setup
 
-1. **Create Lambda function** with .NET 8.0 runtime
-2. **Use AWS.Lambda.AspNetCoreServer.Hosting** for HTTP handlers
-3. **Replace MongoDbDataService** with DynamoDB implementation
-4. **Set environment variables** for DynamoDB region, Cognito pool, etc.
-5. **API Gateway** handles JWT signature validation via Lambda authorizer
-
-### DynamoDB Implementation
-
-A `DynamoDbDataService` implementation is planned for production deployment:
-
-- Implements `IDataService` interface
-- Uses AWSSDK.DynamoDBv2 for database access
-- Swappable with `MongoDataService` via dependency injection
+1. **Deploy backend Lambda** with API Gateway HTTP API
+2. **Configure DocumentDB connection string** via environment variables
+3. **OTP delivery mode**: this PoC returns OTP email content as API debug payload for UI preview (no external email required)
+4. **API Gateway** handles JWT signature validation via JWT authorizer
 
 ## Security Considerations
 

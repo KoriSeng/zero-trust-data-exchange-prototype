@@ -15,6 +15,16 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "subnet_az_a" {
+  description = "Pinned availability zone for subnet group A (prevents AZ-index drift replacements)."
+  type        = string
+}
+
+variable "subnet_az_b" {
+  description = "Pinned availability zone for subnet group B (prevents AZ-index drift replacements)."
+  type        = string
+}
+
 # ── Cognito (from cognito module outputs) ─────────────────────────────────────
 
 variable "cognito_user_pool_id" {
@@ -30,6 +40,11 @@ variable "cognito_user_pool_endpoint" {
 variable "cognito_app_client_id" {
   description = "Cognito App Client ID for JWT audience validation"
   type        = string
+}
+
+variable "cors_allowed_origins" {
+  description = "Allowed CORS origins for API Gateway and backend app responses"
+  type        = list(string)
 }
 
 # ── S3 ────────────────────────────────────────────────────────────────────────
@@ -52,6 +67,18 @@ variable "step_functions_approval_arn" {
   description = "ARN of the Step Functions state machine for approval workflow (optional)"
   type        = string
   default     = ""
+}
+
+variable "logs_kms_key_arn" {
+  description = "KMS key ARN used to encrypt CloudWatch log groups. Leave empty to use the AWS-managed default key."
+  type        = string
+  default     = ""
+}
+
+variable "logs_kms_enabled" {
+  description = "Whether a customer-managed KMS key for CloudWatch Logs is enabled."
+  type        = bool
+  default     = false
 }
 
 # ── DocumentDB ───────────────────────────────────────────────────────────────

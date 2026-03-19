@@ -3,6 +3,11 @@ output "api_gateway_url" {
   value       = aws_apigatewayv2_stage.default.invoke_url
 }
 
+output "api_gateway_id" {
+  description = "API Gateway HTTP API ID"
+  value       = aws_apigatewayv2_api.backend.id
+}
+
 output "lambda_function_name" {
   description = "Backend Lambda function name"
   value       = aws_lambda_function.backend.function_name
@@ -36,4 +41,19 @@ output "private_subnet_ids" {
 output "public_subnet_ids" {
   description = "Public subnet IDs (Lambda — internet via IGW)"
   value       = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+}
+
+output "lambda_error_alarm_name" {
+  description = "CloudWatch alarm name for backend Lambda error spikes"
+  value       = aws_cloudwatch_metric_alarm.lambda_error_spike.alarm_name
+}
+
+output "monitoring_dashboard_name" {
+  description = "CloudWatch dashboard name for backend monitoring overview"
+  value       = aws_cloudwatch_dashboard.prototype_overview.dashboard_name
+}
+
+output "docdb_security_group_id" {
+  description = "DocumentDB security group ID"
+  value       = aws_security_group.docdb.id
 }

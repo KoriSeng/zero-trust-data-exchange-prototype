@@ -59,8 +59,25 @@ variable "docdb_master_password" {
   default     = "" # Set in terraform.tfvars or via TF_VAR_docdb_master_password
 }
 
+variable "step_functions_approval_arn" {
+  description = "ARN of the Step Functions state machine for approval workflow (optional)"
+  type        = string
+  default     = ""
+}
+
+variable "enable_logs_kms_cmk" {
+  description = "Create a shared KMS CMK for CloudWatch Logs encryption"
+  type        = bool
+  default     = true
+}
+
 # Data source to get current AWS account ID
 data "aws_caller_identity" "current" {}
+
+locals {
+  logs_kms_key_arn     = var.enable_logs_kms_cmk ? aws_kms_key.logs[0].arn : ""
+  backend_api_base_url = module.backend_ecs.api_gateway_url
+}
 
 # ============================================================================
 # IAM Role for Lambda Execution
@@ -90,6 +107,85 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
 }
 
 # ============================================================================
+# KMS — Shared CMK for CloudWatch Logs encryption
+# ============================================================================
+
+resource "aws_kms_key" "logs" {
+  count = var.enable_logs_kms_cmk ? 1 : 0
+
+  description             = "${var.project_name} shared key for CloudWatch Logs encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowCloudWatchLogsEncryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${var.aws_region}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${var.project_name}-logs-cmk"
+  }
+}
+
+resource "aws_kms_alias" "logs" {
+  count = var.enable_logs_kms_cmk ? 1 : 0
+
+  name          = "alias/${var.project_name}-logs"
+  target_key_id = aws_kms_key.logs[0].key_id
+}
+
+resource "aws_iam_role_policy" "lambda_exec_kms_logs" {
+  count = var.enable_logs_kms_cmk ? 1 : 0
+
+  name = "${var.project_name}-lambda-exec-kms-logs"
+  role = aws_iam_role.lambda_exec_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "AllowKMSForCloudWatchLogs"
+      Effect = "Allow"
+      Action = [
+        "kms:GenerateDataKey*",
+        "kms:Decrypt",
+        "kms:DescribeKey"
+      ]
+      Resource = aws_kms_key.logs[0].arn
+    }]
+  })
+}
+
+# ============================================================================
 # OIDC IDP Modules
 # ============================================================================
 
@@ -106,13 +202,16 @@ module "idp_a" {
   lambda_runtime     = "nodejs22.x"
   lambda_timeout     = 30
   lambda_memory_size = 512
+  logs_kms_key_arn   = local.logs_kms_key_arn
 
   tags = {
     Name   = "OIDC-IDP-A"
     Issuer = "A"
   }
 
-  depends_on = [aws_iam_role_policy_attachment.lambda_basic_execution]
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic_execution
+  ]
 }
 
 module "idp_b" {
@@ -128,13 +227,16 @@ module "idp_b" {
   lambda_runtime     = "nodejs22.x"
   lambda_timeout     = 30
   lambda_memory_size = 512
+  logs_kms_key_arn   = local.logs_kms_key_arn
 
   tags = {
     Name   = "OIDC-IDP-B"
     Issuer = "B"
   }
 
-  depends_on = [aws_iam_role_policy_attachment.lambda_basic_execution]
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic_execution
+  ]
 }
 
 module "s3_poc" {
@@ -169,42 +271,47 @@ module "cognito" {
       provider_name = "IDP-B"
       provider_type = "OIDC"
       issuer_url    = module.idp_b.function_url
-      issuer_url    = module.idp_b.function_url
       client_id     = "cognito-client-b"
       client_secret = "cognito-secret-b-change-me"
     }
   ]
 
   callback_urls = [
-    "http://localhost:3000/callback",
-    "https://localhost:3000/callback"
+    "https://${aws_cloudfront_distribution.spa.domain_name}/callback"
   ]
 
   logout_urls = [
-    "http://localhost:3000",
-    "https://localhost:3000"
+    "http://localhost:5173",
+    "https://localhost:5173",
+    "https://${aws_cloudfront_distribution.spa.domain_name}"
   ]
 
   depends_on = [module.idp_a, module.idp_b]
 }
 
-# ============================================================================
-# Backend Lambda + API Gateway + DocumentDB
-# ============================================================================
-
-module "backend_lambda" {
-  source = "./modules/backend_lambda"
+module "backend_ecs" {
+  source = "./modules/backend_ecs"
 
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
 
-  cognito_user_pool_id       = module.cognito.user_pool_id
-  cognito_user_pool_endpoint = module.cognito.user_pool_endpoint
-  cognito_app_client_id      = module.cognito.app_client_id
+  subnet_az_a = "${var.aws_region}a"
+  subnet_az_b = "${var.aws_region}b"
 
-  docdb_master_password = var.docdb_master_password
-
+  docdb_master_password         = var.docdb_master_password
+  docdb_master_username         = "ztadmin"
+  s3_data_bucket                = "zero-trust-data"
+  s3_requests_bucket            = "zero-trust-requests"
+  step_functions_approval_arn   = var.step_functions_approval_arn
+  seed_database                 = true
+  seed_org_a_cognito_group_name = "${module.cognito.user_pool_id}_IDP-A"
+  seed_org_b_cognito_group_name = "${module.cognito.user_pool_id}_IDP-B"
+  seed_org_a_idp_issuer         = trimsuffix(module.idp_a.function_url, "/")
+  seed_org_b_idp_issuer         = trimsuffix(module.idp_b.function_url, "/")
+  cors_allowed_origins = [
+    "https://${aws_cloudfront_distribution.spa.domain_name}"
+  ]
   depends_on = [module.cognito]
 }
 
@@ -273,11 +380,41 @@ output "cognito_hosted_ui_url" {
 }
 
 output "backend_api_url" {
-  description = "Backend API Gateway invoke URL"
-  value       = module.backend_lambda.api_gateway_url
+  description = "Active backend base URL (Lambda API Gateway by default, ECS ALB when enabled)"
+  value       = local.backend_api_base_url
+}
+
+output "backend_api_gateway_id" {
+  description = "Backend API Gateway HTTP API ID fronting ECS backend"
+  value       = module.backend_ecs.api_gateway_id
+}
+
+output "backend_ecs_service_url" {
+  description = "Backend ECS service URL"
+  value       = module.backend_ecs.service_url
+}
+
+output "backend_ecs_cluster_name" {
+  description = "Backend ECS cluster name"
+  value       = module.backend_ecs.cluster_name
 }
 
 output "backend_docdb_endpoint" {
   description = "DocumentDB cluster endpoint (internal, for debugging)"
-  value       = module.backend_lambda.docdb_endpoint
+  value       = module.backend_ecs.docdb_endpoint
+}
+
+output "backend_lambda_error_alarm_name" {
+  description = "CloudWatch alarm name for backend Lambda error spikes (legacy, ECS cutover active)"
+  value       = null
+}
+
+output "backend_monitoring_dashboard_name" {
+  description = "CloudWatch dashboard name for backend monitoring overview (legacy, ECS cutover active)"
+  value       = null
+}
+
+output "logs_kms_key_arn" {
+  description = "Shared KMS key ARN for CloudWatch log group encryption (null when disabled)"
+  value       = local.logs_kms_key_arn != "" ? local.logs_kms_key_arn : null
 }

@@ -50,6 +50,12 @@ public class Organization
     public string? IdpIssuer { get; set; }
 
     /// <summary>
+    /// Primary organization contact email used for OTP and workflow notifications
+    /// </summary>
+    [BsonElement("contact_email")]
+    public string? ContactEmail { get; set; }
+
+    /// <summary>
     /// Organization status
     /// </summary>
     [BsonElement("status")]

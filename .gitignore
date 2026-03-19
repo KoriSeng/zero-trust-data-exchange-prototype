@@ -162,3 +162,12 @@ terraform.rc
 # Crash log files
 crash.log
 crash.*.log
+
+# LocalStack persistent data (contains Cognito IDs, S3 state, etc.)
+localstack-data/
+
+# Disable .Net Core's default bin and obj folders
+bin/
+obj/
+/infrastructure/backend.hcl
+/build/

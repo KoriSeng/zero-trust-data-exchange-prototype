@@ -10,7 +10,7 @@
   <ItemGroup>
     <!-- AWS SDK for Lambda and S3/Step Functions -->
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer.Hosting" Version="1.9.1" />
-    <PackageReference Include="AWSSDK.DynamoDBv2" Version="4.0.13" />
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="4.0.9.4" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.18.1" />
     <PackageReference Include="AWSSDK.StepFunctions" Version="4.0.2.9" />
     <PackageReference Include="AWSSDK.Core" Version="4.0.3.12" />
