@@ -28,67 +28,43 @@ public sealed class WorkflowQueueProcessorHostedService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var otpDispatchQueueUrl = _configuration["AWS:StepFunctions:OtpDispatchQueueUrl"];
-        var claimTimeoutQueueUrl = _configuration["AWS:StepFunctions:ClaimTimeoutQueueUrl"];
-        if (string.IsNullOrWhiteSpace(otpDispatchQueueUrl) && string.IsNullOrWhiteSpace(claimTimeoutQueueUrl))
+        if (string.IsNullOrWhiteSpace(otpDispatchQueueUrl))
         {
-            _logger.LogInformation("Workflow queue URLs are not configured; queue processor is idle.");
+            _logger.LogInformation("OTP dispatch queue URL is not configured; OTP queue processor is idle.");
             return;
         }
 
-        _logger.LogInformation("Workflow queue processor started.");
+        _logger.LogInformation("OTP dispatch queue processor started.");
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                if (!string.IsNullOrWhiteSpace(otpDispatchQueueUrl))
+                var response = await _sqsClient.ReceiveMessageAsync(new ReceiveMessageRequest
                 {
-                    var response = await _sqsClient.ReceiveMessageAsync(new ReceiveMessageRequest
-                    {
-                        QueueUrl = otpDispatchQueueUrl,
-                        MaxNumberOfMessages = 5,
-                        WaitTimeSeconds = 5
-                    }, stoppingToken);
+                    QueueUrl = otpDispatchQueueUrl,
+                    MaxNumberOfMessages = 5,
+                    WaitTimeSeconds = 5
+                }, stoppingToken);
 
-                    foreach (var message in response.Messages)
-                    {
-                        var processed = await ProcessOtpDispatchMessageAsync(message, stoppingToken);
-                        if (!processed)
-                        {
-                            continue;
-                        }
-
-                        await _sqsClient.DeleteMessageAsync(new DeleteMessageRequest
-                        {
-                            QueueUrl = otpDispatchQueueUrl,
-                            ReceiptHandle = message.ReceiptHandle
-                        }, stoppingToken);
-                    }
+                if (response.Messages is null || response.Messages.Count == 0)
+                {
+                    continue;
                 }
 
-                if (!string.IsNullOrWhiteSpace(claimTimeoutQueueUrl))
+                foreach (var message in response.Messages)
                 {
-                    var timeoutResponse = await _sqsClient.ReceiveMessageAsync(new ReceiveMessageRequest
+                    var processed = await ProcessOtpDispatchMessageAsync(message, stoppingToken);
+                    if (!processed)
                     {
-                        QueueUrl = claimTimeoutQueueUrl,
-                        MaxNumberOfMessages = 5,
-                        WaitTimeSeconds = 5
-                    }, stoppingToken);
-
-                    foreach (var message in timeoutResponse.Messages)
-                    {
-                        var processed = await ProcessClaimTimeoutMessageAsync(message, stoppingToken);
-                        if (!processed)
-                        {
-                            continue;
-                        }
-
-                        await _sqsClient.DeleteMessageAsync(new DeleteMessageRequest
-                        {
-                            QueueUrl = claimTimeoutQueueUrl,
-                            ReceiptHandle = message.ReceiptHandle
-                        }, stoppingToken);
+                        continue;
                     }
+
+                    await _sqsClient.DeleteMessageAsync(new DeleteMessageRequest
+                    {
+                        QueueUrl = otpDispatchQueueUrl,
+                        ReceiptHandle = message.ReceiptHandle
+                    }, stoppingToken);
                 }
             }
             catch (OperationCanceledException)
@@ -97,7 +73,7 @@ public sealed class WorkflowQueueProcessorHostedService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Workflow queue processor iteration failed");
+                _logger.LogError(ex, "OTP dispatch queue processor iteration failed");
                 await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             }
         }
@@ -194,69 +170,6 @@ public sealed class WorkflowQueueProcessorHostedService : BackgroundService
         });
 
         _logger.LogInformation("OTP dispatch completed for request {requestId}", request.RequestId);
-        _ = cancellationToken;
-        return true;
-    }
-
-    private async Task<bool> ProcessClaimTimeoutMessageAsync(Message message, CancellationToken cancellationToken)
-    {
-        string? requestId;
-        try
-        {
-            using var body = System.Text.Json.JsonDocument.Parse(message.Body);
-            if (!body.RootElement.TryGetProperty("requestId", out var requestIdElement))
-            {
-                _logger.LogWarning("Claim-timeout message missing requestId");
-                return true;
-            }
-
-            requestId = requestIdElement.GetString();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to parse claim-timeout message body");
-            return true;
-        }
-
-        if (string.IsNullOrWhiteSpace(requestId))
-        {
-            _logger.LogWarning("Claim-timeout message had empty requestId");
-            return true;
-        }
-
-        using var scope = _scopeFactory.CreateScope();
-        var dataService = scope.ServiceProvider.GetRequiredService<IDataService>();
-        var request = await dataService.GetRequestByRequestIdAsync(requestId);
-        if (request == null)
-        {
-            _logger.LogWarning("Claim-timeout request not found: {requestId}", requestId);
-            return true;
-        }
-
-        if (request.Status == RequestStatus.Redeemed || request.Status == RequestStatus.Completed || request.Status == RequestStatus.Denied)
-        {
-            _logger.LogInformation("Skipping claim-timeout for closed request {requestId} with status {status}", request.RequestId, request.Status);
-            return true;
-        }
-
-        if (request.Status == RequestStatus.Redeemed)
-        {
-            request.Status = RequestStatus.Expired;
-            request.UpdatedAt = DateTime.UtcNow;
-            await dataService.UpdateDataAccessRequestAsync(request);
-
-            await dataService.CreateAuditEventAsync(new AuditEvent
-            {
-                EventType = "CLAIM_WINDOW_EXPIRED",
-                RequestId = request.RequestId,
-                DatasetId = request.DatasetId,
-                Description = $"Claim window expired before redemption for request {request.RequestId}",
-                Result = AuditEventResult.Success
-            });
-
-            _logger.LogInformation("Claim window expired for request {requestId}", request.RequestId);
-        }
-
         _ = cancellationToken;
         return true;
     }

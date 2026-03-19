@@ -149,6 +149,7 @@ builder.Services.AddScoped<IS3Service, S3Service>();
 builder.Services.AddScoped<IStepFunctionsService, StepFunctionsService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddHostedService<WorkflowQueueProcessorHostedService>();
+builder.Services.AddHostedService<ClaimTimeoutQueueProcessorHostedService>();
 
 // Database seeder hosted service — skipped in Lambda to prevent wiping DB on cold starts
 if (builder.Configuration.GetValue<bool>("SeedDatabase", false) ||
@@ -703,7 +704,7 @@ app.MapPost("/requests/{id}/approve", async (string id, ApproveRequestDto dto, H
 
     var requestedSeconds = dto.AccessDurationSeconds
         ?? (dto.AccessDurationHours.HasValue ? dto.AccessDurationHours.Value * 3600 : 3600);
-    var claimWindowSeconds = Math.Max(60, requestedSeconds);
+    var claimWindowSeconds = Math.Max(1, requestedSeconds);
     await stepFunctionsService.SendTaskSuccessAsync(callbackToken, new Dictionary<string, object>
     {
         { "request_id", request.RequestId },
@@ -879,6 +880,107 @@ app.MapPost("/requests/{id}/redeem", async (string id, RedeemRequestDto dto, Htt
         return Results.BadRequest(new { error = "otp is required" });
     }
 
+    Message? claimCallbackMessage = null;
+    string? claimCallbackToken = null;
+    if (!string.IsNullOrWhiteSpace(request.WorkflowExecutionArn))
+    {
+        var claimQueueUrl = context.RequestServices.GetRequiredService<IConfiguration>()["AWS:StepFunctions:ClaimCallbackQueueUrl"];
+        if (string.IsNullOrWhiteSpace(claimQueueUrl))
+        {
+            return Results.Problem(
+                title: "Workflow callback unavailable",
+                detail: "Claim callback queue is not configured.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        // Poll with retries and immediately re-queue unmatched messages so we don't starve other requests.
+        for (var attempt = 0; attempt < 10 && string.IsNullOrWhiteSpace(claimCallbackToken); attempt++)
+        {
+            var receive = await sqsClient.ReceiveMessageAsync(new ReceiveMessageRequest
+            {
+                QueueUrl = claimQueueUrl,
+                MaxNumberOfMessages = 10,
+                WaitTimeSeconds = 2,
+                VisibilityTimeout = 10
+            });
+
+            foreach (var message in receive.Messages)
+            {
+                try
+                {
+                    using var body = System.Text.Json.JsonDocument.Parse(message.Body);
+                    if (!body.RootElement.TryGetProperty("requestId", out var requestIdElement))
+                    {
+                        await sqsClient.ChangeMessageVisibilityAsync(new ChangeMessageVisibilityRequest
+                        {
+                            QueueUrl = claimQueueUrl,
+                            ReceiptHandle = message.ReceiptHandle,
+                            VisibilityTimeout = 0
+                        });
+                        continue;
+                    }
+
+                    var callbackRequestId = requestIdElement.GetString();
+                    if (!string.Equals(callbackRequestId, request.RequestId, StringComparison.Ordinal))
+                    {
+                        await sqsClient.ChangeMessageVisibilityAsync(new ChangeMessageVisibilityRequest
+                        {
+                            QueueUrl = claimQueueUrl,
+                            ReceiptHandle = message.ReceiptHandle,
+                            VisibilityTimeout = 0
+                        });
+                        continue;
+                    }
+
+                    if (!body.RootElement.TryGetProperty("taskToken", out var tokenElement))
+                    {
+                        await sqsClient.ChangeMessageVisibilityAsync(new ChangeMessageVisibilityRequest
+                        {
+                            QueueUrl = claimQueueUrl,
+                            ReceiptHandle = message.ReceiptHandle,
+                            VisibilityTimeout = 0
+                        });
+                        continue;
+                    }
+
+                    var token = tokenElement.GetString();
+                    if (string.IsNullOrWhiteSpace(token))
+                    {
+                        await sqsClient.ChangeMessageVisibilityAsync(new ChangeMessageVisibilityRequest
+                        {
+                            QueueUrl = claimQueueUrl,
+                            ReceiptHandle = message.ReceiptHandle,
+                            VisibilityTimeout = 0
+                        });
+                        continue;
+                    }
+
+                    claimCallbackToken = token;
+                    claimCallbackMessage = message;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Invalid claim callback message in queue");
+                    await sqsClient.ChangeMessageVisibilityAsync(new ChangeMessageVisibilityRequest
+                    {
+                        QueueUrl = claimQueueUrl,
+                        ReceiptHandle = message.ReceiptHandle,
+                        VisibilityTimeout = 0
+                    });
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(claimCallbackToken) || claimCallbackMessage is null)
+        {
+            return Results.Problem(
+                title: "Claim gate not ready",
+                detail: "No workflow claim gate token was available for this request yet. Please retry shortly.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+    }
+
     var otpResult = await otpService.ValidateOtpAsync(request.RequestId, dto.Otp);
     if (otpResult != OtpValidationResult.Success)
     {
@@ -894,7 +996,7 @@ app.MapPost("/requests/{id}/redeem", async (string id, RedeemRequestDto dto, Htt
 
     var dataBucket = context.RequestServices.GetRequiredService<IConfiguration>()["AWS:S3:DataBucket"] ?? "zero-trust-data";
     var windowSeconds = request.ClaimWindowSeconds.HasValue
-        ? Math.Max(60, request.ClaimWindowSeconds.Value)
+        ? Math.Max(1, request.ClaimWindowSeconds.Value)
         : 3600;
     var urlExpiry = TimeSpan.FromSeconds(windowSeconds);
     var presignedUrls = new Dictionary<string, string>();
@@ -909,6 +1011,24 @@ app.MapPost("/requests/{id}/redeem", async (string id, RedeemRequestDto dto, Htt
             logger.LogError(ex, "Failed to generate pre-signed URL for {key}", key);
             return Results.StatusCode(StatusCodes.Status500InternalServerError);
         }
+    }
+
+    if (!string.IsNullOrWhiteSpace(claimCallbackToken) && claimCallbackMessage is not null)
+    {
+        await stepFunctionsService.SendTaskSuccessAsync(claimCallbackToken, new Dictionary<string, object>
+        {
+            { "request_id", request.RequestId },
+            { "claimedBy", redeemerId! },
+            { "claimedAt", DateTime.UtcNow.ToString("o") },
+            { "requestId", request.RequestId }
+        });
+
+        var claimQueueUrl = context.RequestServices.GetRequiredService<IConfiguration>()["AWS:StepFunctions:ClaimCallbackQueueUrl"]!;
+        await sqsClient.DeleteMessageAsync(new DeleteMessageRequest
+        {
+            QueueUrl = claimQueueUrl,
+            ReceiptHandle = claimCallbackMessage.ReceiptHandle
+        });
     }
 
     var urlExpiresAt = DateTime.UtcNow.Add(urlExpiry);
@@ -934,79 +1054,6 @@ app.MapPost("/requests/{id}/redeem", async (string id, RedeemRequestDto dto, Htt
             { "url_expires_at", urlExpiresAt.ToString("o") }
         }
     });
-
-    if (!string.IsNullOrWhiteSpace(request.WorkflowExecutionArn))
-    {
-        var claimQueueUrl = context.RequestServices.GetRequiredService<IConfiguration>()["AWS:StepFunctions:ClaimCallbackQueueUrl"];
-        if (!string.IsNullOrWhiteSpace(claimQueueUrl))
-        {
-            var receive = await sqsClient.ReceiveMessageAsync(new ReceiveMessageRequest
-            {
-                QueueUrl = claimQueueUrl,
-                MaxNumberOfMessages = 10,
-                WaitTimeSeconds = 1
-            });
-
-            Message? callbackMessage = null;
-            string? callbackToken = null;
-            foreach (var message in receive.Messages)
-            {
-                try
-                {
-                    using var body = System.Text.Json.JsonDocument.Parse(message.Body);
-                    if (!body.RootElement.TryGetProperty("requestId", out var requestIdElement))
-                    {
-                        continue;
-                    }
-
-                    var callbackRequestId = requestIdElement.GetString();
-                    if (!string.Equals(callbackRequestId, request.RequestId, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    if (!body.RootElement.TryGetProperty("taskToken", out var tokenElement))
-                    {
-                        continue;
-                    }
-
-                    callbackToken = tokenElement.GetString();
-                    if (string.IsNullOrWhiteSpace(callbackToken))
-                    {
-                        continue;
-                    }
-
-                    callbackMessage = message;
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Invalid claim callback message in queue");
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(callbackToken) && callbackMessage is not null)
-            {
-                await stepFunctionsService.SendTaskSuccessAsync(callbackToken, new Dictionary<string, object>
-                {
-                    { "request_id", request.RequestId },
-                    { "claimedBy", redeemerId! },
-                    { "claimedAt", DateTime.UtcNow.ToString("o") },
-                    { "requestId", request.RequestId }
-                });
-
-                await sqsClient.DeleteMessageAsync(new DeleteMessageRequest
-                {
-                    QueueUrl = claimQueueUrl,
-                    ReceiptHandle = callbackMessage.ReceiptHandle
-                });
-            }
-            else
-            {
-                logger.LogWarning("No claim callback token found for request {requestId}; workflow may remain waiting", request.RequestId);
-            }
-        }
-    }
 
     logger.LogInformation("Request {requestId} redeemed by {redeemerId}", request.RequestId, redeemerId);
 
