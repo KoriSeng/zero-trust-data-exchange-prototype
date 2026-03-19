@@ -31,9 +31,6 @@ export default function AppShell() {
             <NavLink to="/requests" className={navClassName}>
               My Requests
             </NavLink>
-            <NavLink to="/requests/new" className={navClassName}>
-              New Request
-            </NavLink>
           </>
         )}
 

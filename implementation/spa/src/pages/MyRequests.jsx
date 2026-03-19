@@ -74,8 +74,8 @@ export default function MyRequests() {
     <section className="content-page stack-gap">
       <div className="section-header">
         <h2>My Requests</h2>
-        <Link className="primary-button" to="/requests/new">
-          + New Request
+        <Link className="primary-button" to="/datasets">
+          Browse datasets
         </Link>
       </div>
 

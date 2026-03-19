@@ -45,9 +45,6 @@ export default function Dashboard() {
               <Link to="/requests" className="text-link">
                 View my requests
               </Link>
-              <Link to="/requests/new" className="text-link">
-                Submit new request
-              </Link>
             </div>
           </article>
         )}
