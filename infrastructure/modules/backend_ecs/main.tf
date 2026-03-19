@@ -245,6 +245,26 @@ resource "aws_iam_role_policy" "task_app" {
         Effect   = "Allow"
         Action   = ["states:StartExecution", "states:DescribeExecution"]
         Resource = [var.step_functions_approval_arn]
+      },
+      {
+        Effect = "Allow"
+        Action = ["states:SendTaskSuccess", "states:SendTaskFailure"]
+        Resource = ["*"]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:ChangeMessageVisibility",
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl"
+        ]
+        Resource = compact([
+          var.step_functions_approval_decision_queue_arn,
+          var.step_functions_approval_otp_dispatch_queue_arn,
+          var.step_functions_claim_callback_queue_arn
+        ])
       }] : []
     )
   })
@@ -366,6 +386,9 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "AWS__S3__RequestsBucket", value = var.s3_requests_bucket },
       { name = "AWS__StepFunctions__ApprovalWorkflowArn", value = var.step_functions_approval_arn },
       { name = "AWS__StepFunctions__Enabled", value = var.step_functions_approval_arn != "" ? "true" : "false" },
+      { name = "AWS__StepFunctions__ApprovalDecisionQueueUrl", value = var.step_functions_approval_decision_queue_url },
+      { name = "AWS__StepFunctions__OtpDispatchQueueUrl", value = var.step_functions_approval_otp_dispatch_queue_url },
+      { name = "AWS__StepFunctions__ClaimCallbackQueueUrl", value = var.step_functions_claim_callback_queue_url },
       { name = "DeploymentTrigger", value = timestamp() },
       { name = "Cors__AllowedOrigins", value = join(",", var.cors_allowed_origins) },
       { name = "SeedDatabase", value = var.seed_database ? "true" : "false" },

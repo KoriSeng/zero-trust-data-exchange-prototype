@@ -53,6 +53,42 @@ variable "step_functions_approval_arn" {
   default     = ""
 }
 
+variable "step_functions_approval_decision_queue_url" {
+  description = "Approval decision callback queue URL"
+  type        = string
+  default     = ""
+}
+
+variable "step_functions_approval_decision_queue_arn" {
+  description = "Approval decision callback queue ARN"
+  type        = string
+  default     = ""
+}
+
+variable "step_functions_approval_otp_dispatch_queue_url" {
+  description = "OTP dispatch queue URL"
+  type        = string
+  default     = ""
+}
+
+variable "step_functions_approval_otp_dispatch_queue_arn" {
+  description = "OTP dispatch queue ARN"
+  type        = string
+  default     = ""
+}
+
+variable "step_functions_claim_callback_queue_url" {
+  description = "Claim callback queue URL"
+  type        = string
+  default     = ""
+}
+
+variable "step_functions_claim_callback_queue_arn" {
+  description = "Claim callback queue ARN"
+  type        = string
+  default     = ""
+}
+
 variable "cors_allowed_origins" {
   description = "Allowed CORS origins"
   type        = list(string)

@@ -24,6 +24,9 @@ public enum RequestStatus
     
     [BsonRepresentation(MongoDB.Bson.BsonType.String)]
     OtpSent,
+
+    [BsonRepresentation(MongoDB.Bson.BsonType.String)]
+    ClaimPending,
     
     [BsonRepresentation(MongoDB.Bson.BsonType.String)]
     Redeemed,

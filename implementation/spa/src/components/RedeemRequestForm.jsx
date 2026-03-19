@@ -2,7 +2,12 @@ import { useState } from 'react';
 import apiCall from '../api/client';
 
 function canRedeem(status) {
-  return status === 'OtpSent' || status === 'Approved';
+  return (
+    status === 'OtpSent' ||
+    status === 'ClaimPending' ||
+    status === 'Approved' ||
+    status === 'PendingOwnerApproval'
+  );
 }
 
 export default function RedeemRequestForm({ request, onRedeemed }) {
@@ -10,6 +15,8 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [redemptionResult, setRedemptionResult] = useState(null);
+  const [otpEmailPreview, setOtpEmailPreview] = useState(null);
+  const [isLoadingOtpEmail, setIsLoadingOtpEmail] = useState(false);
 
   if (!canRedeem(request.status)) {
     return <span className="muted-text">—</span>;
@@ -45,8 +52,49 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
     }
   }
 
+  async function handleViewOtpEmail() {
+    setError('');
+    setIsLoadingOtpEmail(true);
+    try {
+      const result = await apiCall(`/requests/${request.id}/otp/email`);
+      setOtpEmailPreview(result);
+      if (result?.otpCode) {
+        setOtp(result.otpCode);
+      }
+    } catch (loadError) {
+      setError(loadError.message ?? 'Could not load OTP email preview.');
+    } finally {
+      setIsLoadingOtpEmail(false);
+    }
+  }
+
   return (
     <div className="redeem-panel">
+      <div className="button-row">
+        <button type="button" className="secondary-button" onClick={handleViewOtpEmail} disabled={isLoadingOtpEmail}>
+          {isLoadingOtpEmail ? 'Loading OTP email…' : 'View OTP Email'}
+        </button>
+      </div>
+
+      {otpEmailPreview && (
+        <div className="otp-debug-panel">
+          <p>
+            <strong>Debug OTP email preview</strong> (prototype mode)
+          </p>
+          <p>
+            To: <strong>{otpEmailPreview.to}</strong>
+          </p>
+          <p>
+            Subject: <strong>{otpEmailPreview.subject}</strong>
+          </p>
+          <p>
+            OTP code: <strong>{otpEmailPreview.otpCode}</strong>
+          </p>
+          {otpEmailPreview.expiresAt && <p>Expires at: {new Date(otpEmailPreview.expiresAt).toLocaleString()}</p>}
+          <pre>{otpEmailPreview.textBody}</pre>
+        </div>
+      )}
+
       <form className="inline-form" onSubmit={handleRedeem}>
         <label className="sr-only" htmlFor={`otp-${request.id}`}>
           One-time password

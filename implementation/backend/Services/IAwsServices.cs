@@ -45,6 +45,11 @@ public interface IStepFunctionsService
     /// Get execution history
     /// </summary>
     Task<List<ExecutionEvent>> GetExecutionHistoryAsync(string executionArn);
+
+    /// <summary>
+    /// Resolve a wait-for-task-token step by sending success callback
+    /// </summary>
+    Task SendTaskSuccessAsync(string taskToken, Dictionary<string, object> output);
 }
 
 /// <summary>

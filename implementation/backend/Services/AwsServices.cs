@@ -209,4 +209,23 @@ public class StepFunctionsService : IStepFunctionsService
             throw;
         }
     }
+
+    public async Task SendTaskSuccessAsync(string taskToken, Dictionary<string, object> output)
+    {
+        try
+        {
+            var request = new SendTaskSuccessRequest
+            {
+                TaskToken = taskToken,
+                Output = JsonSerializer.Serialize(output)
+            };
+
+            await _stepFunctionsClient.SendTaskSuccessAsync(request);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending task success callback to Step Functions");
+            throw;
+        }
+    }
 }

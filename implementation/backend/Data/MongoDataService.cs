@@ -304,6 +304,11 @@ public class MongoDataService : IDataService
         return await _requestsCollection.Find(r => r.Id == requestId).FirstOrDefaultAsync();
     }
 
+    public async Task<DataAccessRequest?> GetRequestByRequestIdAsync(string requestId)
+    {
+        return await _requestsCollection.Find(r => r.RequestId == requestId).FirstOrDefaultAsync();
+    }
+
     public async Task<List<DataAccessRequest>> GetRequestsByRequesterAsync(string requesterId, int limit = 100)
     {
         return await _requestsCollection
@@ -319,6 +324,7 @@ public class MongoDataService : IDataService
             .Find(r => r.DataOwnerOrg == dataOwnerOrg && 
                       (r.Status == RequestStatus.PendingAdminReview || 
                        r.Status == RequestStatus.PendingOwnerApproval ||
+                       r.Status == RequestStatus.ClaimPending ||
                        r.Status == RequestStatus.OtpSent))
             .SortByDescending(r => r.CreatedAt)
             .Limit(limit)

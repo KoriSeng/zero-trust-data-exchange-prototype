@@ -202,4 +202,34 @@ public class DataAccessRequest
     /// </summary>
     [BsonElement("agreement_content")]
     public string? AgreementContent { get; set; }
+
+    /// <summary>
+    /// Debug OTP email recipient for prototype "view email" flow
+    /// </summary>
+    [BsonElement("otp_email_to")]
+    public string? OtpEmailTo { get; set; }
+
+    /// <summary>
+    /// Debug OTP email subject for prototype "view email" flow
+    /// </summary>
+    [BsonElement("otp_email_subject")]
+    public string? OtpEmailSubject { get; set; }
+
+    /// <summary>
+    /// Debug OTP email body for prototype "view email" flow
+    /// </summary>
+    [BsonElement("otp_email_text_body")]
+    public string? OtpEmailTextBody { get; set; }
+
+    /// <summary>
+    /// Debug OTP code preview (prototype only; do not use in production)
+    /// </summary>
+    [BsonElement("otp_code_preview")]
+    public string? OtpCodePreview { get; set; }
+
+    /// <summary>
+    /// Timestamp when OTP debug email was generated
+    /// </summary>
+    [BsonElement("otp_generated_at")]
+    public DateTime? OtpGeneratedAt { get; set; }
 }

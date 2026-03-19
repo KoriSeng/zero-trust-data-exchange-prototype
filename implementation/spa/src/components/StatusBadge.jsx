@@ -2,6 +2,7 @@ const STATUS_STYLE_MAP = {
   Submitted: 'badge badge-submitted',
   PendingAdminReview: 'badge badge-review',
   PendingOwnerApproval: 'badge badge-pending',
+  ClaimPending: 'badge badge-otp',
   Approved: 'badge badge-approved',
   OtpSent: 'badge badge-otp',
   Redeemed: 'badge badge-redeemed',
@@ -14,6 +15,7 @@ const STATUS_STYLE_MAP = {
 const STATUS_LABEL_MAP = {
   PendingAdminReview: 'Pending admin review',
   PendingOwnerApproval: 'Pending owner approval',
+  ClaimPending: 'Claim pending',
   OtpSent: 'OTP sent',
 };
 

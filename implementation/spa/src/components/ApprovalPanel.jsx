@@ -4,39 +4,12 @@ import apiCall from '../api/client';
 export default function ApprovalPanel({ request, onApproved }) {
   const [comments, setComments] = useState('');
   const [accessDurationHours, setAccessDurationHours] = useState('24');
-  const [approvalCode, setApprovalCode] = useState('');
-  const [otpPreview, setOtpPreview] = useState(null);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-
-  async function handleSendOtp() {
-    setError('');
-    setIsSendingOtp(true);
-
-    try {
-      const result = await apiCall(`/requests/${request.id}/otp/send`, {
-        method: 'POST',
-      });
-      setOtpPreview(result?.debugEmail ?? null);
-      if (result?.debugEmail?.otpCode) {
-        setApprovalCode(result.debugEmail.otpCode);
-      }
-    } catch (sendError) {
-      setError(sendError.message ?? 'Could not generate OTP preview.');
-    } finally {
-      setIsSendingOtp(false);
-    }
-  }
 
   async function handleApprove(event) {
     event.preventDefault();
     setError('');
-
-    if (!approvalCode.trim()) {
-      setError('Generate OTP preview first, then use the 6-digit code to approve.');
-      return;
-    }
 
     let parsedHours;
     if (accessDurationHours.trim()) {
@@ -58,7 +31,6 @@ export default function ApprovalPanel({ request, onApproved }) {
     if (parsedHours) {
       payload.accessDurationHours = parsedHours;
     }
-    payload.approvalCode = approvalCode.trim();
 
     setIsSubmitting(true);
 
@@ -106,51 +78,6 @@ export default function ApprovalPanel({ request, onApproved }) {
       </label>
 
       <form className="stack-form" onSubmit={handleApprove}>
-        <div className="button-row">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={handleSendOtp}
-            disabled={isSendingOtp || isSubmitting}
-          >
-            {isSendingOtp ? 'Generating OTP…' : 'Generate OTP preview'}
-          </button>
-        </div>
-
-        {otpPreview && (
-          <div className="otp-debug-panel">
-            <p>
-              <strong>Debug OTP email preview</strong> (no real email sent)
-            </p>
-            <p>
-              To (locked): <strong>{otpPreview.to}</strong>
-            </p>
-            <p>
-              Subject (locked): <strong>{otpPreview.subject}</strong>
-            </p>
-            <p>
-              OTP code: <strong>{otpPreview.otpCode}</strong>
-            </p>
-            {otpPreview.expiresAt && <p>Expires at: {new Date(otpPreview.expiresAt).toLocaleString()}</p>}
-            <pre>{otpPreview.textBody}</pre>
-          </div>
-        )}
-
-        <label>
-          Approval code (from debug preview, locked once generated)
-          <input
-            value={approvalCode}
-            maxLength={6}
-            onChange={(event) => {
-              if (!otpPreview) {
-                setApprovalCode(event.target.value.replace(/[^\d]/g, ''));
-              }
-            }}
-            placeholder="6-digit OTP"
-            readOnly={Boolean(otpPreview)}
-          />
-        </label>
-
         <label>
           Approver comments (optional)
           <textarea
@@ -172,7 +99,7 @@ export default function ApprovalPanel({ request, onApproved }) {
         </label>
 
         <p className="muted-text">
-          Approving this request issues a one-time code (OTP) for the requester.
+          Approving this request advances the workflow. OTP is generated after approval and shown to the requester in My Requests.
         </p>
 
         {error && <p className="error-inline">{error}</p>}
