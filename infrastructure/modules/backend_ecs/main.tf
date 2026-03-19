@@ -366,6 +366,7 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "AWS__S3__RequestsBucket", value = var.s3_requests_bucket },
       { name = "AWS__StepFunctions__ApprovalWorkflowArn", value = var.step_functions_approval_arn },
       { name = "AWS__StepFunctions__Enabled", value = var.step_functions_approval_arn != "" ? "true" : "false" },
+      { name = "DeploymentTrigger", value = timestamp() },
       { name = "Cors__AllowedOrigins", value = join(",", var.cors_allowed_origins) },
       { name = "SeedDatabase", value = var.seed_database ? "true" : "false" },
       { name = "SeedData__OrgA__CognitoGroupName", value = var.seed_org_a_cognito_group_name },

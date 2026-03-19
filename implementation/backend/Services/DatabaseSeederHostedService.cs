@@ -215,6 +215,14 @@ public class DatabaseSeederHostedService : IHostedService
             }
         }
 
+        // Org A is the current dataset owner org in the seeded catalog.
+        // Grant DataOwner role to Org A users so they can review pending requests.
+        if (dataOwnerRole?.Id != null)
+        {
+            await _dataService.AssignRoleToUserAsync(users[0].user.Id, dataOwnerRole.Id, "system");
+            await _dataService.AssignRoleToUserAsync(users[1].user.Id, dataOwnerRole.Id, "system");
+        }
+
         // Admin gets auditor role too
         if (adminRole?.Id != null && auditorRole?.Id != null)
         {

@@ -318,7 +318,8 @@ public class MongoDataService : IDataService
         return await _requestsCollection
             .Find(r => r.DataOwnerOrg == dataOwnerOrg && 
                       (r.Status == RequestStatus.PendingAdminReview || 
-                       r.Status == RequestStatus.PendingOwnerApproval))
+                       r.Status == RequestStatus.PendingOwnerApproval ||
+                       r.Status == RequestStatus.OtpSent))
             .SortByDescending(r => r.CreatedAt)
             .Limit(limit)
             .ToListAsync();

@@ -396,6 +396,9 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
         );
     }
 
+    var activeAgreement = await dataService.GetActiveAgreementAsync(dataOwnerOrg.Id)
+        ?? await dataService.GetActiveAgreementAsync();
+
     // Create request in database
     var dataAccessRequest = new DataAccessRequest
     {
@@ -409,6 +412,9 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
         ObjectKeys = request.ObjectKeys,
         Purpose = request.Purpose,
         DataOwnerOrg = dataOwnerOrg.Id,
+        UserAgreementId = activeAgreement?.AgreementId,
+        UserAgreementVersion = activeAgreement?.Version,
+        AgreementContent = activeAgreement?.Content,
         Status = RequestStatus.Submitted,
         CreatedAt = DateTime.UtcNow,
         UpdatedAt = DateTime.UtcNow,
@@ -607,7 +613,7 @@ app.MapPost("/requests/{id}/otp/send", async (string id, HttpContext context, ID
         return Results.Forbid();
     }
 
-    if (request.Status != RequestStatus.PendingOwnerApproval && request.Status != RequestStatus.OtpSent)
+    if (request.Status != RequestStatus.PendingOwnerApproval)
     {
         return Results.BadRequest(new { error = $"Request cannot issue OTP in current state: {request.Status}" });
     }
@@ -650,7 +656,6 @@ app.MapPost("/requests/{id}/otp/send", async (string id, HttpContext context, ID
 
     var otpPreview = await otpService.GenerateAndSendOtpAsync(request.RequestId, ownerOrg.ContactEmail);
 
-    request.Status = RequestStatus.OtpSent;
     request.OtpExpiresAt = DateTime.UtcNow.AddMinutes(10);
     request.UpdatedAt = DateTime.UtcNow;
     await dataService.UpdateDataAccessRequestAsync(request);
@@ -660,7 +665,7 @@ app.MapPost("/requests/{id}/otp/send", async (string id, HttpContext context, ID
     return Results.Ok(new
     {
         requestId = request.RequestId,
-        status = request.Status.ToString(),
+        status = RequestStatus.PendingOwnerApproval.ToString(),
         message = "OTP generated in debug mode (email delivery is simulated)",
         debugEmail = new
         {
@@ -702,8 +707,7 @@ app.MapPost("/requests/{id}/approve", async (string id, ApproveRequestDto dto, H
         return Results.BadRequest(new { error = "Request is already approved." });
     }
 
-    if (request.Status != RequestStatus.PendingOwnerApproval &&
-        request.Status != RequestStatus.OtpSent)
+    if (request.Status != RequestStatus.PendingOwnerApproval)
     {
         return Results.BadRequest(new { error = $"Request is not in an approvable state (current status: {request.Status})" });
     }

@@ -149,6 +149,17 @@ public class JitProvisioningService : IJitProvisioningService
                 _logger.LogInformation("Assigned Requester role to new user {userId}", newUser.Id);
             }
 
+            // In this prototype, Org A acts as dataset custodian/data owner.
+            if (string.Equals(organization?.ShortName, "ORG-A", StringComparison.OrdinalIgnoreCase))
+            {
+                var dataOwnerRole = await _dataService.GetRoleByNameAsync(RoleNames.DataOwner);
+                if (dataOwnerRole != null)
+                {
+                    await _dataService.AssignRoleToUserAsync(newUser.Id, dataOwnerRole.Id, "system");
+                    _logger.LogInformation("Assigned DataOwner role to Org A user {userId}", newUser.Id);
+                }
+            }
+
             return newUser;
         }
         catch (Exception ex)

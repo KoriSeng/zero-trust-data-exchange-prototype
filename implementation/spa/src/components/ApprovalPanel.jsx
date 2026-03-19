@@ -94,11 +94,16 @@ export default function ApprovalPanel({ request, onApproved }) {
           <strong>Purpose</strong>
           <p>{request.purpose}</p>
         </div>
-        <div>
-          <strong>Object keys</strong>
-          <p>{(request.objectKeys ?? []).join(', ')}</p>
-        </div>
       </div>
+
+      <label>
+        Full user agreement (read-only)
+        <textarea
+          rows={8}
+          value={request.agreementContent ?? 'No agreement content captured for this request.'}
+          readOnly
+        />
+      </label>
 
       <form className="stack-form" onSubmit={handleApprove}>
         <div className="button-row">
@@ -118,10 +123,10 @@ export default function ApprovalPanel({ request, onApproved }) {
               <strong>Debug OTP email preview</strong> (no real email sent)
             </p>
             <p>
-              To: <strong>{otpPreview.to}</strong>
+              To (locked): <strong>{otpPreview.to}</strong>
             </p>
             <p>
-              Subject: <strong>{otpPreview.subject}</strong>
+              Subject (locked): <strong>{otpPreview.subject}</strong>
             </p>
             <p>
               OTP code: <strong>{otpPreview.otpCode}</strong>
@@ -132,12 +137,17 @@ export default function ApprovalPanel({ request, onApproved }) {
         )}
 
         <label>
-          Approval code (from debug preview)
+          Approval code (from debug preview, locked once generated)
           <input
             value={approvalCode}
             maxLength={6}
-            onChange={(event) => setApprovalCode(event.target.value.replace(/[^\d]/g, ''))}
+            onChange={(event) => {
+              if (!otpPreview) {
+                setApprovalCode(event.target.value.replace(/[^\d]/g, ''));
+              }
+            }}
             placeholder="6-digit OTP"
+            readOnly={Boolean(otpPreview)}
           />
         </label>
 
