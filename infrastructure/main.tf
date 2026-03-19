@@ -218,6 +218,13 @@ resource "aws_sqs_queue" "approval_claim_callbacks" {
   message_retention_seconds = 1209600
 }
 
+resource "aws_sqs_queue" "approval_decision_callbacks" {
+  count = var.step_functions_approval_arn == "" ? 1 : 0
+
+  name                      = "${var.project_name}-${var.environment}-approval-decision-callbacks"
+  message_retention_seconds = 1209600
+}
+
 resource "aws_iam_role_policy" "stepfunctions_claim_callbacks" {
   count = var.step_functions_approval_arn == "" ? 1 : 0
 
@@ -229,7 +236,10 @@ resource "aws_iam_role_policy" "stepfunctions_claim_callbacks" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["sqs:SendMessage"]
-      Resource = aws_sqs_queue.approval_claim_callbacks[0].arn
+      Resource = [
+        aws_sqs_queue.approval_decision_callbacks[0].arn,
+        aws_sqs_queue.approval_claim_callbacks[0].arn
+      ]
     }]
   })
 }
@@ -253,11 +263,17 @@ resource "aws_sfn_state_machine" "approval" {
         Next = "ApprovalDecision"
       }
       ApprovalDecision = {
-        Type       = "Pass"
-        ResultPath = "$.workflow"
-        Result = {
-          state = "APPROVED"
+        Type     = "Task"
+        Resource = "arn:aws:states:::sqs:sendMessage.waitForTaskToken"
+        Parameters = {
+          QueueUrl = aws_sqs_queue.approval_decision_callbacks[0].url
+          MessageBody = {
+            "requestId.$" = "$.request_id"
+            state         = "APPROVAL_DECISION_PENDING"
+            "taskToken.$" = "$$.Task.Token"
+          }
         }
+        TimeoutSeconds = 86400
         Next = "SendOtp"
       }
       SendOtp = {
