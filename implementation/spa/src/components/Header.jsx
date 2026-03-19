@@ -23,16 +23,17 @@ export default function Header() {
 
   return (
     <header className="modern-header">
-      <div className="header-brand">
-        <div className="brand-icon">🧬</div>
-        <div className="brand-text">
-          <h1 className="brand-title">Zero Trust Data Exchange</h1>
-          <p className="brand-subtitle">Bio Research Data Sharing Platform</p>
+      <div>
+        <div className="header-brand">
+          <div className="brand-icon">🧬</div>
+          <div className="brand-text">
+            <h1 className="brand-title">Zero Trust Data Exchange</h1>
+            <p className="brand-subtitle">Bio Research Data Sharing Platform</p>
+          </div>
         </div>
-      </div>
 
-      <div className="header-right">
-        <button type="button" className="icon-button" aria-label="Notifications" title="Notifications">
+        <div className="header-right">
+          <button type="button" className="icon-button" aria-label="Notifications" title="Notifications">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path
               d="M15 6.66667C15 5.34058 14.4732 4.06881 13.5355 3.13113C12.5979 2.19345 11.3261 1.66667 10 1.66667C8.67392 1.66667 7.40215 2.19345 6.46447 3.13113C5.52678 4.06881 5 5.34058 5 6.66667C5 12.5 2.5 14.1667 2.5 14.1667H17.5C17.5 14.1667 15 12.5 15 6.66667Z"
@@ -136,8 +137,9 @@ export default function Header() {
           )}
         </div>
       </div>
+    </div>
 
-      {error && <p className="error-banner">{error}</p>}
-    </header>
-  );
+    {error && <p className="error-banner">{error}</p>}
+  </header>
+);
 }

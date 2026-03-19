@@ -202,6 +202,13 @@ button:disabled,
   color: #64748b;
   cursor: pointer;
   transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.icon-button svg {
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 
 .icon-button:hover {
