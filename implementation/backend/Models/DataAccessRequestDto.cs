@@ -93,7 +93,12 @@ public class ApproveRequestDto
     public string? Comments { get; set; }
 
     /// <summary>
-    /// Duration for access (in hours)
+    /// Duration for access (in seconds)
+    /// </summary>
+    public int? AccessDurationSeconds { get; set; }
+
+    /// <summary>
+    /// Legacy duration for access (in hours). Kept for backward compatibility.
     /// </summary>
     public int? AccessDurationHours { get; set; }
 

@@ -319,6 +319,7 @@ resource "aws_sfn_state_machine" "approval" {
           }
         }
         TimeoutSeconds = 86400
+        ResultPath = "$.claimResult"
         Next = "AccessWindowWait"
       }
       AccessWindowWait = {

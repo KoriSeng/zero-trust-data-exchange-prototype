@@ -3,7 +3,7 @@ import apiCall from '../api/client';
 
 export default function ApprovalPanel({ request, onApproved }) {
   const [comments, setComments] = useState('');
-  const [accessDurationHours, setAccessDurationHours] = useState('24');
+  const [accessDurationSeconds, setAccessDurationSeconds] = useState('3600');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -11,10 +11,10 @@ export default function ApprovalPanel({ request, onApproved }) {
     event.preventDefault();
     setError('');
 
-    let parsedHours;
-    if (accessDurationHours.trim()) {
-      parsedHours = Number.parseInt(accessDurationHours, 10);
-      if (Number.isNaN(parsedHours) || parsedHours <= 0) {
+    let parsedSeconds;
+    if (accessDurationSeconds.trim()) {
+      parsedSeconds = Number.parseInt(accessDurationSeconds, 10);
+      if (Number.isNaN(parsedSeconds) || parsedSeconds <= 0) {
         setError('Access duration must be a positive integer.');
         return;
       }
@@ -28,8 +28,8 @@ export default function ApprovalPanel({ request, onApproved }) {
       payload.comments = comments.trim();
     }
 
-    if (parsedHours) {
-      payload.accessDurationHours = parsedHours;
+    if (parsedSeconds) {
+      payload.accessDurationSeconds = parsedSeconds;
     }
 
     setIsSubmitting(true);
@@ -89,12 +89,12 @@ export default function ApprovalPanel({ request, onApproved }) {
         </label>
 
         <label>
-          Access duration (hours, optional)
+          Access duration (seconds, optional)
           <input
             type="number"
             min={1}
-            value={accessDurationHours}
-            onChange={(event) => setAccessDurationHours(event.target.value)}
+            value={accessDurationSeconds}
+            onChange={(event) => setAccessDurationSeconds(event.target.value)}
           />
         </label>
 

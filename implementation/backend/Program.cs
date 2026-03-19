@@ -701,7 +701,9 @@ app.MapPost("/requests/{id}/approve", async (string id, ApproveRequestDto dto, H
             statusCode: StatusCodes.Status409Conflict);
     }
 
-    var claimWindowSeconds = Math.Max(60, (dto.AccessDurationHours ?? 1) * 3600);
+    var requestedSeconds = dto.AccessDurationSeconds
+        ?? (dto.AccessDurationHours.HasValue ? dto.AccessDurationHours.Value * 3600 : 3600);
+    var claimWindowSeconds = Math.Max(60, requestedSeconds);
     await stepFunctionsService.SendTaskSuccessAsync(callbackToken, new Dictionary<string, object>
     {
         { "request_id", request.RequestId },
@@ -987,6 +989,7 @@ app.MapPost("/requests/{id}/redeem", async (string id, RedeemRequestDto dto, Htt
             {
                 await stepFunctionsService.SendTaskSuccessAsync(callbackToken, new Dictionary<string, object>
                 {
+                    { "request_id", request.RequestId },
                     { "claimedBy", redeemerId! },
                     { "claimedAt", DateTime.UtcNow.ToString("o") },
                     { "requestId", request.RequestId }
