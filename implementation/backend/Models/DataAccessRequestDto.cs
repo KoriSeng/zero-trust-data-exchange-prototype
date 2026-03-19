@@ -42,11 +42,6 @@ public class DataAccessRequestResponse
     public string Status { get; set; } = null!;
 
     /// <summary>
-    /// Approval workflow execution ARN (for tracking)
-    /// </summary>
-    public string? WorkflowExecutionArn { get; set; }
-
-    /// <summary>
     /// Timestamp of request creation
     /// </summary>
     public DateTime CreatedAt { get; set; }

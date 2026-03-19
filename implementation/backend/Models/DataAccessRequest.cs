@@ -100,6 +100,18 @@ public class DataAccessRequest
     [BsonElement("workflow_execution_arn")]
     public string? WorkflowExecutionArn { get; set; }
 
+    /// <summary>
+    /// Step Functions task token for the approval decision wait state
+    /// Stored once the approval-decision queue worker receives it
+    /// </summary>
+    [BsonElement("approval_task_token")]
+    public string? ApprovalTaskToken { get; set; }
+
+    /// <summary>
+    /// Timestamp when the approval task token was received
+    /// </summary>
+    [BsonElement("approval_task_token_received_at")]
+    public DateTime? ApprovalTaskTokenReceivedAt { get; set; }
 
     /// <summary>
     /// Approval timestamp
