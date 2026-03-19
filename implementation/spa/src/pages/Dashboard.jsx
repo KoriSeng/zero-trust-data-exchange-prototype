@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Dashboard() {
-  const { profile, user, isLoading } = useAuth();
+  const { profile, isLoading } = useAuth();
 
   if (isLoading) {
     return (

@@ -190,6 +190,39 @@ var app = builder.Build();
 app.UseCors();
 app.UseAuthorization();
 
+// Public projection for request responses so internal workflow tokens stay server-side only.
+static DataAccessRequestPublicResponse ToPublicRequest(DataAccessRequest request) => new()
+{
+    Id = request.Id,
+    RequestId = request.RequestId,
+    RequesterId = request.RequesterId,
+    RequesterEmail = request.RequesterEmail,
+    RequesterOrg = request.RequesterOrg,
+    DatasetId = request.DatasetId,
+    DatasetName = request.DatasetName,
+    ObjectKeys = request.ObjectKeys,
+    Purpose = request.Purpose,
+    Status = request.Status.ToString(),
+    DataOwnerOrg = request.DataOwnerOrg,
+    CreatedAt = request.CreatedAt,
+    UpdatedAt = request.UpdatedAt,
+    ExpiresAt = request.ExpiresAt,
+    ApprovedAt = request.ApprovedAt,
+    ApprovedBy = request.ApprovedBy,
+    ApprovalComments = request.ApprovalComments,
+    DeniedAt = request.DeniedAt,
+    DeniedBy = request.DeniedBy,
+    DenialReason = request.DenialReason,
+    RedeemedAt = request.RedeemedAt,
+    AccessedAt = request.AccessedAt,
+    RevokedAt = request.RevokedAt,
+    RevokedBy = request.RevokedBy,
+    UserAgreementId = request.UserAgreementId,
+    UserAgreementVersion = request.UserAgreementVersion,
+    AgreementContent = request.AgreementContent,
+    ClaimWindowSeconds = request.ClaimWindowSeconds,
+};
+
 // ============ Routes ============
 
 // Health check
@@ -549,8 +582,8 @@ app.MapGet("/requests/pending", async (HttpContext context, IDataService dataSer
     }
 
     var pendingRequests = await dataService.GetPendingRequestsByOrgAsync(organizationId);
-    
-    return Results.Ok(pendingRequests);
+
+    return Results.Ok(pendingRequests.Select(ToPublicRequest).ToList());
 })
 .WithName("GetPendingRequests")
 .RequireAuthorization("Authenticated");
@@ -566,7 +599,7 @@ app.MapGet("/requests/my", async (HttpContext context, IDataService dataService)
     }
 
     var requests = await dataService.GetRequestsByRequesterAsync(requesterId);
-    return Results.Ok(requests);
+    return Results.Ok(requests.Select(ToPublicRequest).ToList());
 })
 .WithName("GetMyRequests")
 .RequireAuthorization("Authenticated");
@@ -589,7 +622,7 @@ app.MapGet("/requests/{id}", async (string id, HttpContext context, IDataService
         return Results.Forbid();
     }
 
-    return Results.Ok(request);
+    return Results.Ok(ToPublicRequest(request));
 })
 .WithName("GetRequestById")
 .RequireAuthorization("Authenticated");
@@ -707,7 +740,7 @@ app.MapPost("/requests/{id}/approve", async (string id, ApproveRequestDto dto, H
 .RequireAuthorization("Authenticated");
 
 // Deny a pending request (data owner only) - OTP is intentionally not required for denials.
-app.MapPost("/requests/{id}/deny", async (string id, DenyRequestDto dto, HttpContext context, IDataService dataService, ILogger<Program> logger) =>
+app.MapPost("/requests/{id}/deny", async (string id, DenyRequestDto dto, HttpContext context, IDataService dataService, IStepFunctionsService stepFunctionsService, ILogger<Program> logger) =>
 {
     var denierId = context.User.FindFirst("user_id")?.Value;
     var denierOrg = context.User.FindFirst("user_organization")?.Value;
@@ -756,6 +789,28 @@ app.MapPost("/requests/{id}/deny", async (string id, DenyRequestDto dto, HttpCon
 
     logger.LogInformation("Request {requestId} denied by {denierId}", request.RequestId, denierId);
 
+    // Terminate the Step Functions workflow if we have a task token
+    if (!string.IsNullOrWhiteSpace(request.ApprovalTaskToken))
+    {
+        try
+        {
+            await stepFunctionsService.SendTaskFailureAsync(
+                request.ApprovalTaskToken,
+                "RequestDenied",
+                $"Request {request.RequestId} was denied by {denierId}. Reason: {dto.Reason ?? "no reason given"}"
+            );
+            logger.LogInformation("Sent task failure to Step Functions for denied request {requestId}", request.RequestId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to send task failure to Step Functions for request {requestId}, but denial was recorded", request.RequestId);
+        }
+    }
+    else
+    {
+        logger.LogWarning("No approval task token found for request {requestId}, Step Functions workflow may still be running", request.RequestId);
+    }
+
     return Results.Ok(new { requestId = request.RequestId, status = request.Status.ToString() });
 })
 .WithName("DenyRequest")
@@ -800,8 +855,8 @@ app.MapGet("/requests/{id}/otp/email", async (string id, HttpContext context, ID
 .WithName("GetRequestOtpEmail")
 .RequireAuthorization("Authenticated");
 
-// Generate a short-lived download URL during an active redeemed access window.
-app.MapGet("/requests/{id}/download-url", async (string id, string key, HttpContext context, IDataService dataService, IS3Service s3Service, ILogger<Program> logger) =>
+// Generate and redirect to a short-lived S3 download URL during an active redeemed window.
+app.MapPost("/requests/{id}/download", async (string id, HttpContext context, IDataService dataService, IS3Service s3Service, ILogger<Program> logger) =>
 {
     var requesterId = context.User.FindFirst("user_id")?.Value;
     if (string.IsNullOrWhiteSpace(requesterId))
@@ -809,9 +864,24 @@ app.MapGet("/requests/{id}/download-url", async (string id, string key, HttpCont
         return Results.BadRequest(new { error = "User not properly provisioned" });
     }
 
+    string? key;
+    try
+    {
+        using var bodyDoc = await System.Text.Json.JsonDocument.ParseAsync(context.Request.Body);
+        if (!bodyDoc.RootElement.TryGetProperty("objectKey", out var keyElement))
+        {
+            return Results.BadRequest(new { error = "objectKey is required in request body" });
+        }
+        key = keyElement.GetString();
+    }
+    catch
+    {
+        return Results.BadRequest(new { error = "Invalid JSON body" });
+    }
+
     if (string.IsNullOrWhiteSpace(key))
     {
-        return Results.BadRequest(new { error = "key is required" });
+        return Results.BadRequest(new { error = "objectKey cannot be empty" });
     }
 
     var request = await dataService.GetRequestByIdAsync(id);
@@ -872,15 +942,9 @@ app.MapGet("/requests/{id}/download-url", async (string id, string key, HttpCont
         }
     });
 
-    return Results.Ok(new
-    {
-        requestId = request.RequestId,
-        objectKey = key,
-        url,
-        expiresAt
-    });
+    return Results.Redirect(url);
 })
-.WithName("GetRequestDownloadUrl")
+.WithName("DownloadRequestFile")
 .RequireAuthorization("Authenticated");
 
 // Redeem approved request and return pre-signed S3 URLs for the requester.

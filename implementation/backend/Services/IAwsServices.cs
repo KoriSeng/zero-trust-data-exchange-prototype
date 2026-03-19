@@ -50,6 +50,11 @@ public interface IStepFunctionsService
     /// Resolve a wait-for-task-token step by sending success callback
     /// </summary>
     Task SendTaskSuccessAsync(string taskToken, Dictionary<string, object> output);
+
+    /// <summary>
+    /// Terminate a wait-for-task-token step by sending failure callback
+    /// </summary>
+    Task SendTaskFailureAsync(string taskToken, string error, string cause);
 }
 
 /// <summary>

@@ -24,7 +24,6 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
   const [isLoadingOtpEmail, setIsLoadingOtpEmail] = useState(false);
   const [downloadError, setDownloadError] = useState('');
   const [downloadingKey, setDownloadingKey] = useState('');
-  const [lastDownloadExpiry, setLastDownloadExpiry] = useState('');
   const [showDownloadFiles, setShowDownloadFiles] = useState(false);
   const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
 
@@ -83,16 +82,34 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
     setDownloadError('');
     setDownloadingKey(objectKey);
     try {
-      const params = new URLSearchParams({ key: objectKey });
-      const result = await apiCall(`/requests/${request.id}/download-url?${params.toString()}`);
-      setLastDownloadExpiry(result?.expiresAt ?? '');
-      if (result?.url) {
-        window.location.assign(result.url);
-      } else {
-        setDownloadError('Download URL was not returned by the server.');
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/requests/${request.id}/download`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('id_token')}`,
+        },
+        body: JSON.stringify({ objectKey }),
+        redirect: 'manual',
+      });
+
+      if (response.type === 'opaqueredirect' || response.status === 0) {
+        window.location.href = response.url || `${import.meta.env.VITE_API_BASE_URL}/requests/${request.id}/download`;
+        return;
+      }
+
+      if (response.status === 301 || response.status === 302) {
+        const redirectUrl = response.headers.get('Location');
+        if (redirectUrl) {
+          window.location.href = redirectUrl;
+        } else {
+          setDownloadError('Server redirect missing Location header.');
+        }
+      } else if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Download failed' }));
+        setDownloadError(errorData.error || `Server returned ${response.status}`);
       }
     } catch (loadError) {
-      setDownloadError(loadError.message ?? 'Could not generate download link.');
+      setDownloadError(loadError.message ?? 'Could not initiate download.');
     } finally {
       setDownloadingKey('');
     }
@@ -154,7 +171,6 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
               ))}
             </div>
           )}
-          {lastDownloadExpiry && <p className="muted-text">Download link expires at {new Date(lastDownloadExpiry).toLocaleTimeString()}.</p>}
           {downloadError && <p className="error-inline">{downloadError}</p>}
         </div>
       )}

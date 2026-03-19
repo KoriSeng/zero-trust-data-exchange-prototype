@@ -227,4 +227,25 @@ public class StepFunctionsService : IStepFunctionsService
             throw;
         }
     }
+
+    public async Task SendTaskFailureAsync(string taskToken, string error, string cause)
+    {
+        try
+        {
+            var request = new SendTaskFailureRequest
+            {
+                TaskToken = taskToken,
+                Error = error,
+                Cause = cause
+            };
+
+            await _stepFunctionsClient.SendTaskFailureAsync(request);
+            _logger.LogInformation("Sent task failure to Step Functions: {error}", error);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending task failure callback to Step Functions");
+            throw;
+        }
+    }
 }
