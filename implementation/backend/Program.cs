@@ -19,7 +19,12 @@ var databaseName = builder.Configuration.GetValue<string>("MongoDb:DatabaseName"
 
 // AWS Configuration
 var awsRegion = builder.Configuration["AWS:Region"] ?? "us-east-1";
-var serviceUrl = builder.Configuration["AWS:ServiceUrl"];
+var configuredServiceUrl = builder.Configuration["AWS:ServiceUrl"];
+var serviceUrl = builder.Environment.IsDevelopment() ? configuredServiceUrl : null;
+if (!builder.Environment.IsDevelopment() && !string.IsNullOrWhiteSpace(configuredServiceUrl))
+{
+    Console.WriteLine("Ignoring AWS:ServiceUrl because environment is not Development.");
+}
 
 // ============ Services ============
 

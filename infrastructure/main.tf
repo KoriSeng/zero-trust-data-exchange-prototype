@@ -301,8 +301,8 @@ module "backend_ecs" {
 
   docdb_master_password         = var.docdb_master_password
   docdb_master_username         = "ztadmin"
-  s3_data_bucket                = "zero-trust-data"
-  s3_requests_bucket            = "zero-trust-requests"
+  s3_data_bucket                = module.s3_poc.bucket_name
+  s3_requests_bucket            = module.s3_poc.bucket_name
   step_functions_approval_arn   = var.step_functions_approval_arn
   seed_database                 = true
   seed_org_a_cognito_group_name = "${module.cognito.user_pool_id}_IDP-A"
