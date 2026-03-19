@@ -263,7 +263,8 @@ resource "aws_iam_role_policy" "task_app" {
         Resource = compact([
           var.step_functions_approval_decision_queue_arn,
           var.step_functions_approval_otp_dispatch_queue_arn,
-          var.step_functions_claim_callback_queue_arn
+          var.step_functions_claim_callback_queue_arn,
+          var.step_functions_claim_timeout_queue_arn
         ])
       }] : []
     )
@@ -389,6 +390,7 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "AWS__StepFunctions__ApprovalDecisionQueueUrl", value = var.step_functions_approval_decision_queue_url },
       { name = "AWS__StepFunctions__OtpDispatchQueueUrl", value = var.step_functions_approval_otp_dispatch_queue_url },
       { name = "AWS__StepFunctions__ClaimCallbackQueueUrl", value = var.step_functions_claim_callback_queue_url },
+      { name = "AWS__StepFunctions__ClaimTimeoutQueueUrl", value = var.step_functions_claim_timeout_queue_url },
       { name = "DeploymentTrigger", value = timestamp() },
       { name = "Cors__AllowedOrigins", value = join(",", var.cors_allowed_origins) },
       { name = "SeedDatabase", value = var.seed_database ? "true" : "false" },

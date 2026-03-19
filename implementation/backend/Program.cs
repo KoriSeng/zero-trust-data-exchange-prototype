@@ -701,13 +701,15 @@ app.MapPost("/requests/{id}/approve", async (string id, ApproveRequestDto dto, H
             statusCode: StatusCodes.Status409Conflict);
     }
 
+    var claimWindowSeconds = Math.Max(60, (dto.AccessDurationHours ?? 1) * 3600);
     await stepFunctionsService.SendTaskSuccessAsync(callbackToken, new Dictionary<string, object>
     {
         { "request_id", request.RequestId },
         { "decision", "approved" },
         { "approvedBy", approverId! },
         { "approvedAt", DateTime.UtcNow.ToString("o") },
-        { "comments", dto.Comments ?? string.Empty }
+        { "comments", dto.Comments ?? string.Empty },
+        { "claim_window_seconds", claimWindowSeconds }
     });
 
     await sqsClient.DeleteMessageAsync(new DeleteMessageRequest
@@ -720,6 +722,7 @@ app.MapPost("/requests/{id}/approve", async (string id, ApproveRequestDto dto, H
     request.ApprovedAt = DateTime.UtcNow;
     request.ApprovedBy = approverId;
     request.ApprovalComments = dto.Comments;
+    request.ClaimWindowSeconds = claimWindowSeconds;
     request.UpdatedAt = DateTime.UtcNow;
     await dataService.UpdateDataAccessRequestAsync(request);
 
@@ -888,7 +891,10 @@ app.MapPost("/requests/{id}/redeem", async (string id, RedeemRequestDto dto, Htt
     }
 
     var dataBucket = context.RequestServices.GetRequiredService<IConfiguration>()["AWS:S3:DataBucket"] ?? "zero-trust-data";
-    var urlExpiry = TimeSpan.FromMinutes(15);
+    var windowSeconds = request.ClaimWindowSeconds.HasValue
+        ? Math.Max(60, request.ClaimWindowSeconds.Value)
+        : 3600;
+    var urlExpiry = TimeSpan.FromSeconds(windowSeconds);
     var presignedUrls = new Dictionary<string, string>();
     foreach (var key in request.ObjectKeys)
     {
@@ -1007,7 +1013,7 @@ app.MapPost("/requests/{id}/redeem", async (string id, RedeemRequestDto dto, Htt
         status = request.Status.ToString(),
         presignedUrls,
         expiresAt = urlExpiresAt,
-        message = "Access granted. URLs expire in 15 minutes."
+        message = $"Access granted. URLs expire in {Math.Max(1, (int)Math.Round(urlExpiry.TotalMinutes))} minutes."
     });
 })
 .WithName("RedeemRequest")

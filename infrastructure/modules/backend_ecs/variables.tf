@@ -89,6 +89,18 @@ variable "step_functions_claim_callback_queue_arn" {
   default     = ""
 }
 
+variable "step_functions_claim_timeout_queue_url" {
+  description = "Claim timeout queue URL"
+  type        = string
+  default     = ""
+}
+
+variable "step_functions_claim_timeout_queue_arn" {
+  description = "Claim timeout queue ARN"
+  type        = string
+  default     = ""
+}
+
 variable "cors_allowed_origins" {
   description = "Allowed CORS origins"
   type        = list(string)

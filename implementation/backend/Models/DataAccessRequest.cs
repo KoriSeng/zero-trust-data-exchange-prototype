@@ -167,6 +167,12 @@ public class DataAccessRequest
     public DateTime? PresignedUrlExpiresAt { get; set; }
 
     /// <summary>
+    /// Configured post-redeem access window in seconds
+    /// </summary>
+    [BsonElement("claim_window_seconds")]
+    public int? ClaimWindowSeconds { get; set; }
+
+    /// <summary>
     /// Timestamp when data was accessed
     /// </summary>
     [BsonElement("accessed_at")]

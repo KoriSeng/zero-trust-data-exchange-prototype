@@ -232,6 +232,13 @@ resource "aws_sqs_queue" "approval_otp_dispatch" {
   message_retention_seconds = 1209600
 }
 
+resource "aws_sqs_queue" "approval_claim_timeouts" {
+  count = var.step_functions_approval_arn == "" ? 1 : 0
+
+  name                      = "${var.project_name}-${var.environment}-approval-claim-timeouts"
+  message_retention_seconds = 1209600
+}
+
 resource "aws_iam_role_policy" "stepfunctions_claim_callbacks" {
   count = var.step_functions_approval_arn == "" ? 1 : 0
 
@@ -246,7 +253,8 @@ resource "aws_iam_role_policy" "stepfunctions_claim_callbacks" {
       Resource = [
         aws_sqs_queue.approval_decision_callbacks[0].arn,
         aws_sqs_queue.approval_otp_dispatch[0].arn,
-        aws_sqs_queue.approval_claim_callbacks[0].arn
+        aws_sqs_queue.approval_claim_callbacks[0].arn,
+        aws_sqs_queue.approval_claim_timeouts[0].arn
       ]
     }]
   })
@@ -311,7 +319,27 @@ resource "aws_sfn_state_machine" "approval" {
           }
         }
         TimeoutSeconds = 86400
-        Next = "Complete"
+        Next = "AccessWindowWait"
+      }
+      AccessWindowWait = {
+        Type            = "Wait"
+        SecondsPath     = "$.approvalDecision.claim_window_seconds"
+        Next            = "DisableClaim"
+      }
+      DisableClaim = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::sqs:sendMessage"
+        Parameters = {
+          QueueUrl = aws_sqs_queue.approval_claim_timeouts[0].url
+          MessageBody = {
+            "requestId.$"  = "$.request_id"
+            state          = "CLAIM_WINDOW_EXPIRED"
+            "expiredAt.$"  = "$$.State.EnteredTime"
+            "windowSeconds.$" = "$.approvalDecision.claim_window_seconds"
+          }
+        }
+        ResultPath = "$.claimTimeoutDispatch"
+        Next       = "Complete"
       }
       Complete = {
         Type = "Succeed"
@@ -445,6 +473,8 @@ module "backend_ecs" {
   step_functions_approval_otp_dispatch_queue_arn = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_otp_dispatch[0].arn : ""
   step_functions_claim_callback_queue_url = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_callbacks[0].url : ""
   step_functions_claim_callback_queue_arn = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_callbacks[0].arn : ""
+  step_functions_claim_timeout_queue_url = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_timeouts[0].url : ""
+  step_functions_claim_timeout_queue_arn = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_timeouts[0].arn : ""
   seed_database                 = true
   seed_org_a_cognito_group_name = "${module.cognito.user_pool_id}_IDP-A"
   seed_org_b_cognito_group_name = "${module.cognito.user_pool_id}_IDP-B"
