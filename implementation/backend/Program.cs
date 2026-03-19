@@ -421,45 +421,54 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
         ExpiresAt = DateTime.UtcNow.AddDays(30)
     };
 
-    // Save to database
+    var stepFunctionsEnabled = context.RequestServices
+        .GetRequiredService<IConfiguration>()
+        .GetValue<bool>("AWS:StepFunctions:Enabled", true);
+
+    // Start approval workflow first when enabled; request creation is workflow-gated.
+    string? workflowExecutionArn = null;
+    if (stepFunctionsEnabled)
+    {
+        try
+        {
+            var workflowContext = new Dictionary<string, object>
+            {
+                { "requester_id", requesterId },
+                { "requester_email", requesterEmail ?? "unknown@example.com" },
+                { "requester_org", requesterOrg ?? "UNKNOWN" },
+                { "dataset_id", request.DatasetId },
+                { "purpose", request.Purpose },
+                { "data_owner_org", dataOwnerOrg.Id },
+                { "object_keys", request.ObjectKeys }
+            };
+
+            workflowExecutionArn = await stepFunctionsService.StartApprovalWorkflowAsync(
+                dataAccessRequest.RequestId,
+                workflowContext
+            );
+
+            logger.LogInformation("Started approval workflow for request {requestId}", dataAccessRequest.RequestId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error starting approval workflow for request {requestId}", dataAccessRequest.RequestId);
+            return Results.Problem(
+                title: "Workflow unavailable",
+                detail: "Could not start approval workflow. Request was not created.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
+    dataAccessRequest.WorkflowExecutionArn = workflowExecutionArn;
+    dataAccessRequest.Status = RequestStatus.PendingOwnerApproval;
+
+    // Save to database after workflow start succeeds (or is disabled)
     var saved = await dataService.CreateDataAccessRequestAsync(dataAccessRequest);
     if (!saved)
     {
         logger.LogError("Failed to save data access request {requestId}", dataAccessRequest.RequestId);
         return Results.StatusCode(StatusCodes.Status500InternalServerError);
     }
-
-    // Start approval workflow
-    string? workflowExecutionArn = null;
-    dataAccessRequest.Status = RequestStatus.PendingOwnerApproval;
-    try
-    {
-        var workflowContext = new Dictionary<string, object>
-        {
-            { "requester_id", requesterId },
-            { "requester_email", requesterEmail ?? "unknown@example.com" },
-            { "requester_org", requesterOrg ?? "UNKNOWN" },
-            { "dataset_id", request.DatasetId },
-            { "purpose", request.Purpose },
-            { "data_owner_org", dataOwnerOrg.Id },
-            { "object_keys", request.ObjectKeys }
-        };
-
-        workflowExecutionArn = await stepFunctionsService.StartApprovalWorkflowAsync(
-            dataAccessRequest.RequestId, 
-            workflowContext
-        );
-
-        dataAccessRequest.WorkflowExecutionArn = workflowExecutionArn;
-        logger.LogInformation("Started approval workflow for request {requestId}", dataAccessRequest.RequestId);
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Error starting approval workflow for request {requestId}", dataAccessRequest.RequestId);
-        // Continue without workflow - OTP approval is enforced at API layer.
-    }
-
-    await dataService.UpdateDataAccessRequestAsync(dataAccessRequest);
 
     // Upload request metadata to S3 audit trail
     try

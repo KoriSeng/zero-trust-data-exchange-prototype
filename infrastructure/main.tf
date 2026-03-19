@@ -76,6 +76,11 @@ data "aws_caller_identity" "current" {}
 
 locals {
   logs_kms_key_arn     = var.enable_logs_kms_cmk ? aws_kms_key.logs[0].arn : ""
+  resolved_sfn_approval_arn = (
+    var.step_functions_approval_arn != ""
+    ? var.step_functions_approval_arn
+    : aws_sfn_state_machine.approval[0].arn
+  )
   backend_api_base_url = module.backend_ecs.api_gateway_url
 }
 
@@ -182,6 +187,52 @@ resource "aws_iam_role_policy" "lambda_exec_kms_logs" {
       ]
       Resource = aws_kms_key.logs[0].arn
     }]
+  })
+}
+
+# ============================================================================
+# Step Functions — Approval workflow
+# ============================================================================
+
+resource "aws_iam_role" "stepfunctions_exec" {
+  count = var.step_functions_approval_arn == "" ? 1 : 0
+
+  name = "${var.project_name}-${var.environment}-sfn-exec-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "states.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_sfn_state_machine" "approval" {
+  count = var.step_functions_approval_arn == "" ? 1 : 0
+
+  name     = "${var.project_name}-${var.environment}-approval-workflow"
+  role_arn = aws_iam_role.stepfunctions_exec[0].arn
+
+  definition = jsonencode({
+    Comment = "Zero Trust approval workflow baseline"
+    StartAt = "MarkSubmitted"
+    States = {
+      MarkSubmitted = {
+        Type       = "Pass"
+        ResultPath = "$.workflow"
+        Result = {
+          state = "SUBMITTED"
+        }
+        Next = "Complete"
+      }
+      Complete = {
+        Type = "Succeed"
+      }
+    }
   })
 }
 
@@ -303,7 +354,7 @@ module "backend_ecs" {
   docdb_master_username         = "ztadmin"
   s3_data_bucket                = module.s3_poc.bucket_name
   s3_requests_bucket            = module.s3_poc.bucket_name
-  step_functions_approval_arn   = var.step_functions_approval_arn
+  step_functions_approval_arn   = local.resolved_sfn_approval_arn
   seed_database                 = true
   seed_org_a_cognito_group_name = "${module.cognito.user_pool_id}_IDP-A"
   seed_org_b_cognito_group_name = "${module.cognito.user_pool_id}_IDP-B"
@@ -362,6 +413,11 @@ output "poc_bucket_arn" {
 output "poc_presigner_role_arn" {
   description = "IAM role ARN used to generate pre-signed URLs for the POC bucket"
   value       = module.s3_poc.presigner_role_arn
+}
+
+output "approval_workflow_arn" {
+  description = "Resolved Step Functions approval workflow ARN used by backend"
+  value       = local.resolved_sfn_approval_arn
 }
 
 output "cognito_user_pool_id" {

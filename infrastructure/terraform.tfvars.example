@@ -10,8 +10,8 @@ project_name = "zero-trust-prototype"
 # Must be 8-100 characters and not contain / " @ or spaces
 docdb_master_password = "change-me-strong-password-1"
 
-# Optional Step Functions state machine ARN used by backend approval workflow and
-# conditional Step Functions log group creation.
+# Optional Step Functions state machine ARN override used by backend approval workflow.
+# If left unset, Terraform creates and wires an in-stack state machine automatically.
 # step_functions_approval_arn = "arn:aws:states:ap-southeast-1:123456789012:stateMachine:zero-trust-approval"
 
 # Optional: disable shared CloudWatch Logs CMK creation/wiring for prototype testing.
