@@ -1,0 +1,4 @@
+series_id,subject_id,slice_count,spacing_mm
+CT-001,SUBJ-101,320,0.75
+CT-002,SUBJ-102,280,1.00
+CT-003,SUBJ-103,410,0.60

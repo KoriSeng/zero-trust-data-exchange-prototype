@@ -1,0 +1,5 @@
+{
+  "abundance": "Log2 normalized abundance",
+  "protein_id": "Synthetic UniProt-like protein identifier",
+  "subject_id": "Anonymized participant identifier"
+}

@@ -361,6 +361,7 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "ConnectionStrings__MongoDB", value = local.docdb_connection_string },
       { name = "MongoDb__DatabaseName", value = "zero_trust_db" },
       { name = "AWS__Region", value = var.aws_region },
+      { name = "AWS__ServiceUrl", value = "" },
       { name = "AWS__S3__DataBucket", value = var.s3_data_bucket },
       { name = "AWS__S3__RequestsBucket", value = var.s3_requests_bucket },
       { name = "AWS__StepFunctions__ApprovalWorkflowArn", value = var.step_functions_approval_arn },

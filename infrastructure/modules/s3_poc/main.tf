@@ -6,6 +6,17 @@ locals {
     Project     = var.project_name
   }, var.tags)
   presigner_role_name = coalesce(var.presigner_role_name, "${var.project_name}-${var.environment}-poc-presigner")
+  sample_root         = "${path.module}/sample"
+  sample_files        = fileset(local.sample_root, "**/*")
+  sample_content_type = {
+    txt    = "text/plain"
+    csv    = "text/csv"
+    tsv    = "text/tab-separated-values"
+    json   = "application/json"
+    jsonl  = "application/x-ndjson"
+    parquet = "application/octet-stream"
+    png    = "image/png"
+  }
 }
 
 resource "aws_s3_bucket" "poc" {
@@ -133,4 +144,19 @@ resource "aws_s3_object" "poisoned_sample" {
   tags = {
     poison = "true"
   }
+}
+
+resource "aws_s3_object" "dataset_samples" {
+  for_each = var.create_seed_objects ? local.sample_files : []
+
+  bucket = aws_s3_bucket.poc.id
+  key    = each.value
+  source = "${local.sample_root}/${each.value}"
+  etag   = filemd5("${local.sample_root}/${each.value}")
+
+  content_type = lookup(
+    local.sample_content_type,
+    lower(element(reverse(split(".", each.value)), 0)),
+    "application/octet-stream"
+  )
 }

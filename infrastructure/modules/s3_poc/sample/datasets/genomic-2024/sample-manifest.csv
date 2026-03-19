@@ -1,0 +1,4 @@
+sample_id,partition,site,consent_version
+G-A-0001,train,site-01,v2
+G-A-0002,validation,site-03,v2
+G-A-0003,test,site-02,v1
