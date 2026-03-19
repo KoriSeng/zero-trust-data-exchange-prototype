@@ -31,8 +31,12 @@ export default function MyRequests() {
   const [requests, setRequests] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const loadRequests = useCallback(async () => {
+  const loadRequests = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) {
+      setIsRefreshing(true);
+    }
     try {
       const response = await apiCall('/requests/my');
       setRequests(Array.isArray(response) ? response : []);
@@ -41,6 +45,9 @@ export default function MyRequests() {
       setError(loadError.message ?? 'Could not load requests.');
     } finally {
       setIsLoading(false);
+      if (isManualRefresh) {
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
@@ -52,14 +59,6 @@ export default function MyRequests() {
 
   useEffect(() => {
     void loadRequests();
-
-    const intervalId = window.setInterval(() => {
-      void loadRequests();
-    }, 10000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
   }, [loadRequests]);
 
   if (!canViewRequests) {
@@ -74,9 +73,14 @@ export default function MyRequests() {
     <section className="content-page stack-gap">
       <div className="section-header">
         <h2>My Requests</h2>
-        <Link className="primary-button" to="/datasets">
-          Browse datasets
-        </Link>
+        <div className="button-row">
+          <button type="button" className="secondary-button" onClick={() => void loadRequests(true)} disabled={isRefreshing}>
+            {isRefreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <Link className="primary-button" to="/datasets">
+            Browse datasets
+          </Link>
+        </div>
       </div>
 
       {newRequestNotice && <p className="success-banner">{newRequestNotice}</p>}

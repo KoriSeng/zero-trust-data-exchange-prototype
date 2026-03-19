@@ -846,6 +846,89 @@ app.MapGet("/requests/{id}/otp/email", async (string id, HttpContext context, ID
 .WithName("GetRequestOtpEmail")
 .RequireAuthorization("Authenticated");
 
+// Generate a short-lived download URL during an active redeemed access window.
+app.MapGet("/requests/{id}/download-url", async (string id, string key, HttpContext context, IDataService dataService, IS3Service s3Service, ILogger<Program> logger) =>
+{
+    var requesterId = context.User.FindFirst("user_id")?.Value;
+    if (string.IsNullOrWhiteSpace(requesterId))
+    {
+        return Results.BadRequest(new { error = "User not properly provisioned" });
+    }
+
+    if (string.IsNullOrWhiteSpace(key))
+    {
+        return Results.BadRequest(new { error = "key is required" });
+    }
+
+    var request = await dataService.GetRequestByIdAsync(id);
+    if (request == null)
+    {
+        return Results.NotFound(new { error = "Request not found" });
+    }
+
+    if (request.RequesterId != requesterId)
+    {
+        return Results.Forbid();
+    }
+
+    if (request.Status != RequestStatus.Redeemed)
+    {
+        return Results.BadRequest(new { error = $"Request is not in an active download state (current status: {request.Status})" });
+    }
+
+    if (!request.PresignedUrlExpiresAt.HasValue || request.PresignedUrlExpiresAt.Value <= DateTime.UtcNow)
+    {
+        return Results.Problem(
+            title: "Access window expired",
+            detail: "This request access window has expired.",
+            statusCode: StatusCodes.Status409Conflict);
+    }
+
+    if (!request.ObjectKeys.Contains(key))
+    {
+        return Results.BadRequest(new { error = "Requested object key is not part of this request." });
+    }
+
+    var dataBucket = context.RequestServices.GetRequiredService<IConfiguration>()["AWS:S3:DataBucket"] ?? "zero-trust-data";
+    var linkExpiry = TimeSpan.FromMinutes(1);
+    var expiresAt = DateTime.UtcNow.Add(linkExpiry);
+    string url;
+    try
+    {
+        url = await s3Service.GeneratePresignedUrlAsync(dataBucket, key, linkExpiry);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to generate short-lived download URL for request {requestId} key {key}", request.RequestId, key);
+        return Results.StatusCode(StatusCodes.Status500InternalServerError);
+    }
+
+    await dataService.CreateAuditEventAsync(new AuditEvent
+    {
+        EventType = "DOWNLOAD_URL_ISSUED",
+        ActorId = requesterId,
+        RequestId = request.RequestId,
+        DatasetId = request.DatasetId,
+        Description = $"Short-lived download URL issued for key {key}",
+        Result = AuditEventResult.Success,
+        Metadata = new Dictionary<string, object>
+        {
+            { "object_key", key },
+            { "url_expires_at", expiresAt.ToString("o") }
+        }
+    });
+
+    return Results.Ok(new
+    {
+        requestId = request.RequestId,
+        objectKey = key,
+        url,
+        expiresAt
+    });
+})
+.WithName("GetRequestDownloadUrl")
+.RequireAuthorization("Authenticated");
+
 // Redeem approved request and return pre-signed S3 URLs for the requester.
 app.MapPost("/requests/{id}/redeem", async (string id, RedeemRequestDto dto, HttpContext context, IDataService dataService, IS3Service s3Service, IStepFunctionsService stepFunctionsService, IAmazonSQS sqsClient, IOtpService otpService, ILogger<Program> logger) =>
 {

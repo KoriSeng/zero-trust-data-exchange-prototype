@@ -10,6 +10,10 @@ function canRedeem(status) {
   );
 }
 
+function canDownload(status) {
+  return status === 'Redeemed';
+}
+
 export default function RedeemRequestForm({ request, onRedeemed }) {
   const [otp, setOtp] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,8 +21,12 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
   const [redemptionResult, setRedemptionResult] = useState(null);
   const [otpEmailPreview, setOtpEmailPreview] = useState(null);
   const [isLoadingOtpEmail, setIsLoadingOtpEmail] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+  const [downloadingKey, setDownloadingKey] = useState('');
+  const [lastDownloadExpiry, setLastDownloadExpiry] = useState('');
+  const [showDownloadFiles, setShowDownloadFiles] = useState(false);
 
-  if (!canRedeem(request.status)) {
+  if (!canRedeem(request.status) && !canDownload(request.status)) {
     return <span className="muted-text">—</span>;
   }
 
@@ -68,15 +76,36 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
     }
   }
 
+  async function handleDownloadKey(objectKey) {
+    setDownloadError('');
+    setDownloadingKey(objectKey);
+    try {
+      const params = new URLSearchParams({ key: objectKey });
+      const result = await apiCall(`/requests/${request.id}/download-url?${params.toString()}`);
+      setLastDownloadExpiry(result?.expiresAt ?? '');
+      if (result?.url) {
+        window.location.assign(result.url);
+      } else {
+        setDownloadError('Download URL was not returned by the server.');
+      }
+    } catch (loadError) {
+      setDownloadError(loadError.message ?? 'Could not generate download link.');
+    } finally {
+      setDownloadingKey('');
+    }
+  }
+
   return (
     <div className="redeem-panel">
-      <div className="button-row">
-        <button type="button" className="secondary-button" onClick={handleViewOtpEmail} disabled={isLoadingOtpEmail}>
-          {isLoadingOtpEmail ? 'Loading OTP email…' : 'View OTP Email'}
-        </button>
-      </div>
+      {canRedeem(request.status) && (
+        <div className="button-row">
+          <button type="button" className="secondary-button" onClick={handleViewOtpEmail} disabled={isLoadingOtpEmail}>
+            {isLoadingOtpEmail ? 'Loading OTP email…' : 'View OTP Email'}
+          </button>
+        </div>
+      )}
 
-      {otpEmailPreview && (
+      {canRedeem(request.status) && otpEmailPreview && (
         <div className="otp-debug-panel">
           <p>
             <strong>Debug OTP email preview</strong> (prototype mode)
@@ -95,25 +124,54 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
         </div>
       )}
 
-      <form className="inline-form" onSubmit={handleRedeem}>
-        <label className="sr-only" htmlFor={`otp-${request.id}`}>
-          One-time password
-        </label>
-        <input
-          id={`otp-${request.id}`}
-          type="text"
-          value={otp}
-          maxLength={6}
-          inputMode="numeric"
-          onChange={(event) => setOtp(event.target.value.replace(/\D/g, ''))}
-          placeholder="OTP"
-        />
-        <button type="submit" className="secondary-button" disabled={isSubmitting || otp.length !== 6}>
-          {isSubmitting ? 'Redeeming…' : 'Redeem'}
-        </button>
-      </form>
+      {canRedeem(request.status) && (
+        <form className="inline-form" onSubmit={handleRedeem}>
+          <label className="sr-only" htmlFor={`otp-${request.id}`}>
+            One-time password
+          </label>
+          <input
+            id={`otp-${request.id}`}
+            type="text"
+            value={otp}
+            maxLength={6}
+            inputMode="numeric"
+            onChange={(event) => setOtp(event.target.value.replace(/\D/g, ''))}
+            placeholder="OTP"
+          />
+          <button type="submit" className="secondary-button" disabled={isSubmitting || otp.length !== 6}>
+            {isSubmitting ? 'Redeeming…' : 'Redeem'}
+          </button>
+        </form>
+      )}
 
       {error && <p className="error-inline">{error}</p>}
+
+      {canDownload(request.status) && (
+        <div className="stack-gap">
+          <div className="button-row">
+            <button type="button" className="secondary-button" onClick={() => setShowDownloadFiles((prev) => !prev)}>
+              {showDownloadFiles ? 'Hide files' : 'View files'}
+            </button>
+          </div>
+          {showDownloadFiles && (
+            <div className="button-row">
+              {(request.objectKeys ?? []).map((objectKey) => (
+                <button
+                  key={objectKey}
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => handleDownloadKey(objectKey)}
+                  disabled={Boolean(downloadingKey) && downloadingKey === objectKey}
+                >
+                  {downloadingKey === objectKey ? 'Generating link…' : `Download ${objectKey.split('/').pop() ?? objectKey}`}
+                </button>
+              ))}
+            </div>
+          )}
+          {lastDownloadExpiry && <p className="muted-text">Download link expires at {new Date(lastDownloadExpiry).toLocaleTimeString()}.</p>}
+          {downloadError && <p className="error-inline">{downloadError}</p>}
+        </div>
+      )}
 
       {redemptionResult?.presignedUrls && (
         <details className="link-details">
