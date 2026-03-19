@@ -373,6 +373,12 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
     var userAgentHeader = context.Request.Headers["User-Agent"].FirstOrDefault();
     var sanitizedUserAgent = inputSanitizer.SanitizeText(userAgentHeader);
 
+    if (string.IsNullOrWhiteSpace(requesterEmail) || requesterEmail.Equals("unknown@example.com", StringComparison.OrdinalIgnoreCase))
+    {
+        var requesterUser = await dataService.GetUserBySubAsync(requesterId);
+        requesterEmail = requesterUser?.Email;
+    }
+
     // Fetch dataset metadata from catalog (single source of truth)
     var dataset = await dataService.GetDatasetCatalogItemByDatasetIdAsync(request.DatasetId.Trim());
     if (dataset == null)
@@ -449,20 +455,8 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
     {
         try
         {
-            var workflowContext = new Dictionary<string, object>
-            {
-                { "requester_id", requesterId },
-                { "requester_email", requesterEmail ?? "unknown@example.com" },
-                { "requester_org", requesterOrg ?? "UNKNOWN" },
-                { "dataset_id", dataset.DatasetId },
-                { "purpose", sanitizedPurpose },
-                { "data_owner_org", dataOwnerOrg.Id },
-                { "object_keys", dataset.ObjectKeys }
-            };
-
             workflowExecutionArn = await stepFunctionsService.StartApprovalWorkflowAsync(
-                dataAccessRequest.RequestId,
-                workflowContext
+                dataAccessRequest.RequestId
             );
 
             logger.LogInformation("Started approval workflow for request {requestId}", dataAccessRequest.RequestId);

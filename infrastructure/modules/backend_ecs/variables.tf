@@ -115,13 +115,13 @@ variable "desired_count" {
 variable "cpu" {
   description = "Fargate task CPU units"
   type        = number
-  default     = 256
+  default     = 512
 }
 
 variable "memory" {
   description = "Fargate task memory (MB)"
   type        = number
-  default     = 512
+  default     = 1024
 }
 
 variable "container_port" {

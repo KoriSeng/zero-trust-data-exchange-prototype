@@ -133,14 +133,13 @@ public class StepFunctionsService : IStepFunctionsService
             ?? "arn:aws:states:us-east-1:000000000000:stateMachine:ZeroTrustApprovalWorkflow";
     }
 
-    public async Task<string> StartApprovalWorkflowAsync(string requestId, Dictionary<string, object> context)
+    public async Task<string> StartApprovalWorkflowAsync(string requestId)
     {
         try
         {
             var input = new
             {
                 request_id = requestId,
-                context = context,
                 timestamp = DateTime.UtcNow
             };
 

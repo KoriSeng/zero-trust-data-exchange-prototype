@@ -20,18 +20,6 @@ export default function Dashboard() {
 
   return (
     <section className="content-page stack-gap">
-      <div className="card">
-        <h2>Welcome</h2>
-        <p>
-          Signed in as <strong>{profile?.displayName ?? user?.username ?? 'Authenticated User'}</strong>.
-        </p>
-        <p>
-          Organisation: <strong>{profile?.organizationName ?? 'Unknown'}</strong>
-        </p>
-        <p>
-          Identity provider: <strong>{profile?.identityProvider ?? 'Unknown'}</strong>
-        </p>
-      </div>
 
       <div className="grid-two">
         {canSubmitRequests && (

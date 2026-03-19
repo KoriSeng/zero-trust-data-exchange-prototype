@@ -34,7 +34,7 @@ public interface IStepFunctionsService
     /// <summary>
     /// Start approval workflow execution for a request
     /// </summary>
-    Task<string> StartApprovalWorkflowAsync(string requestId, Dictionary<string, object> context);
+    Task<string> StartApprovalWorkflowAsync(string requestId);
 
     /// <summary>
     /// Get workflow execution status
