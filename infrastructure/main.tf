@@ -211,6 +211,29 @@ resource "aws_iam_role" "stepfunctions_exec" {
   })
 }
 
+resource "aws_sqs_queue" "approval_claim_callbacks" {
+  count = var.step_functions_approval_arn == "" ? 1 : 0
+
+  name                      = "${var.project_name}-${var.environment}-approval-claim-callbacks"
+  message_retention_seconds = 1209600
+}
+
+resource "aws_iam_role_policy" "stepfunctions_claim_callbacks" {
+  count = var.step_functions_approval_arn == "" ? 1 : 0
+
+  name = "${var.project_name}-${var.environment}-sfn-claim-callbacks"
+  role = aws_iam_role.stepfunctions_exec[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["sqs:SendMessage"]
+      Resource = aws_sqs_queue.approval_claim_callbacks[0].arn
+    }]
+  })
+}
+
 resource "aws_sfn_state_machine" "approval" {
   count = var.step_functions_approval_arn == "" ? 1 : 0
 
@@ -218,15 +241,45 @@ resource "aws_sfn_state_machine" "approval" {
   role_arn = aws_iam_role.stepfunctions_exec[0].arn
 
   definition = jsonencode({
-    Comment = "Zero Trust approval workflow baseline"
-    StartAt = "MarkSubmitted"
+    Comment = "Zero Trust approval workflow lifecycle (approval -> OTP -> claim callback)"
+    StartAt = "RequestCreated"
     States = {
-      MarkSubmitted = {
+      RequestCreated = {
         Type       = "Pass"
         ResultPath = "$.workflow"
         Result = {
-          state = "SUBMITTED"
+          state = "REQUEST_CREATED"
         }
+        Next = "ApprovalDecision"
+      }
+      ApprovalDecision = {
+        Type       = "Pass"
+        ResultPath = "$.workflow"
+        Result = {
+          state = "APPROVED"
+        }
+        Next = "SendOtp"
+      }
+      SendOtp = {
+        Type       = "Pass"
+        ResultPath = "$.workflow"
+        Result = {
+          state = "OTP_SENT"
+        }
+        Next = "ClaimPending"
+      }
+      ClaimPending = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::sqs:sendMessage.waitForTaskToken"
+        Parameters = {
+          QueueUrl = aws_sqs_queue.approval_claim_callbacks[0].url
+          MessageBody = {
+            "requestId.$" = "$.request_id"
+            state         = "CLAIM_PENDING"
+            "taskToken.$" = "$$.Task.Token"
+          }
+        }
+        TimeoutSeconds = 86400
         Next = "Complete"
       }
       Complete = {
