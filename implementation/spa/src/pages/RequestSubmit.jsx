@@ -7,10 +7,7 @@ export default function RequestSubmit() {
 
   const [form, setForm] = useState({
     datasetId: '',
-    datasetName: '',
     purpose: '',
-    objectKeys: '',
-    dataOwnerOrg: 'ORG-B',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -30,13 +27,7 @@ export default function RequestSubmit() {
 
     const payload = {
       datasetId: form.datasetId.trim(),
-      datasetName: form.datasetName.trim(),
       purpose: form.purpose.trim(),
-      objectKeys: form.objectKeys
-        .split(/[\n,]/)
-        .map((key) => key.trim())
-        .filter(Boolean),
-      dataOwnerOrg: form.dataOwnerOrg,
     };
 
     try {
@@ -67,51 +58,23 @@ export default function RequestSubmit() {
             value={form.datasetId}
             onChange={updateField}
             required
-            placeholder="DS-001"
+            placeholder="dataset-imaging-ct-2025"
           />
-        </label>
-
-        <label>
-          Dataset Name
-          <input
-            name="datasetName"
-            value={form.datasetName}
-            onChange={updateField}
-            required
-            placeholder="Sensitive Research Dataset"
-          />
+          <small className="muted-text">
+            Enter the ID of a published dataset. Dataset details will be fetched automatically.
+          </small>
         </label>
 
         <label>
           Purpose
           <textarea
             name="purpose"
-            rows={3}
+            rows={4}
             value={form.purpose}
             onChange={updateField}
             required
-            placeholder="Why this access is needed"
+            placeholder="Why this access is needed (e.g., 'For cancer research project ABC-123')"
           />
-        </label>
-
-        <label>
-          Object Keys (comma or newline separated)
-          <textarea
-            name="objectKeys"
-            rows={4}
-            value={form.objectKeys}
-            onChange={updateField}
-            required
-            placeholder="data/sample.csv, data/sample-2.csv"
-          />
-        </label>
-
-        <label>
-          Data owner organisation
-          <select name="dataOwnerOrg" value={form.dataOwnerOrg} onChange={updateField}>
-            <option value="ORG-A">ORG-A</option>
-            <option value="ORG-B">ORG-B</option>
-          </select>
         </label>
 
         {error && <p className="error-inline">{error}</p>}

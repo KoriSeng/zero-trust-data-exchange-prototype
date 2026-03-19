@@ -359,6 +359,13 @@ public class MongoDataService : IDataService
             .ToListAsync();
     }
 
+    public async Task<DatasetCatalogItem?> GetDatasetCatalogItemByDatasetIdAsync(string datasetId)
+    {
+        return await _datasetCatalogCollection
+            .Find(d => d.DatasetId == datasetId)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task PutDatasetCatalogItemAsync(DatasetCatalogItem item)
     {
         await _datasetCatalogCollection.InsertOneAsync(item);

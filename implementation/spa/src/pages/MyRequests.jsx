@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import apiCall from '../api/client';
 import RedeemRequestForm from '../components/RedeemRequestForm';
 import StatusBadge from '../components/StatusBadge';
+import StatusTimeline from '../components/StatusTimeline';
+import AutoRefreshIndicator from '../components/AutoRefreshIndicator';
 import { useAuth } from '../contexts/AuthContext';
+
+const POLLING_INTERVAL = 25000; // 25 seconds
 
 export default function MyRequests() {
   const location = useLocation();
@@ -32,6 +36,10 @@ export default function MyRequests() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [expandedRequestId, setExpandedRequestId] = useState(null);
+  const pollingIntervalRef = useRef(null);
+  const isPageVisibleRef = useRef(true);
 
   const loadRequests = useCallback(async (isManualRefresh = false) => {
     if (isManualRefresh) {
@@ -41,6 +49,7 @@ export default function MyRequests() {
       const response = await apiCall('/requests/my');
       setRequests(Array.isArray(response) ? response : []);
       setError('');
+      setLastUpdated(Date.now());
     } catch (loadError) {
       setError(loadError.message ?? 'Could not load requests.');
     } finally {
@@ -57,8 +66,34 @@ export default function MyRequests() {
     }
   }, [location.pathname, navigate, newRequestIdFromState, newRequestIdsFromState]);
 
+  // Initial load
   useEffect(() => {
     void loadRequests();
+  }, [loadRequests]);
+
+  // Smart polling with page visibility
+  useEffect(() => {
+    function handleVisibilityChange() {
+      isPageVisibleRef.current = !document.hidden;
+      if (isPageVisibleRef.current) {
+        void loadRequests();
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    pollingIntervalRef.current = setInterval(() => {
+      if (isPageVisibleRef.current) {
+        void loadRequests();
+      }
+    }, POLLING_INTERVAL);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
   }, [loadRequests]);
 
   if (!canViewRequests) {
@@ -74,6 +109,7 @@ export default function MyRequests() {
       <div className="section-header">
         <h2>My Requests</h2>
         <div className="button-row">
+          <AutoRefreshIndicator lastUpdated={lastUpdated} isRefreshing={isRefreshing} />
           <button type="button" className="secondary-button" onClick={() => void loadRequests(true)} disabled={isRefreshing}>
             {isRefreshing ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -88,39 +124,72 @@ export default function MyRequests() {
       {error && <p className="error-banner">{error}</p>}
 
       {isLoading ? (
-        <p>Loading requests…</p>
+        <div className="request-cards-grid">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="request-card skeleton">
+              <div className="skeleton-line skeleton-title" />
+              <div className="skeleton-line skeleton-text" />
+              <div className="skeleton-line skeleton-text" />
+            </div>
+          ))}
+        </div>
       ) : requests.length === 0 ? (
-        <p>No requests submitted yet.</p>
+        <div className="empty-state">
+          <div className="empty-state-icon">📋</div>
+          <h3>No requests yet</h3>
+          <p>Submit your first data access request to get started.</p>
+          <Link className="primary-button" to="/datasets">
+            Browse datasets
+          </Link>
+        </div>
       ) : (
-        <div className="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Request ID</th>
-                <th>Dataset</th>
-                <th>Purpose</th>
-                <th>Status</th>
-                <th>Updated</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {requests.map((request) => (
-                <tr key={request.id}>
-                  <td>{request.requestId}</td>
-                  <td>{request.datasetName ?? request.datasetId}</td>
-                  <td>{request.purpose}</td>
-                  <td>
-                    <StatusBadge status={request.status} />
-                  </td>
-                  <td>{new Date(request.updatedAt ?? request.createdAt).toLocaleString()}</td>
-                  <td>
-                    <RedeemRequestForm request={request} onRedeemed={loadRequests} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="request-cards-grid">
+          {requests.map((request) => (
+            <article key={request.id} className="request-card">
+              <div className="request-card-header">
+                <div>
+                  <h3 className="request-card-title">{request.requestId}</h3>
+                  <p className="request-card-dataset">{request.datasetName ?? request.datasetId}</p>
+                </div>
+                <StatusBadge status={request.status} />
+              </div>
+
+              <StatusTimeline status={request.status} />
+
+              <div className="request-card-meta">
+                <div className="request-meta-item">
+                  <span className="meta-label">Purpose</span>
+                  <p className="meta-value">{request.purpose}</p>
+                </div>
+                <div className="request-meta-item">
+                  <span className="meta-label">Updated</span>
+                  <p className="meta-value">{new Date(request.updatedAt ?? request.createdAt).toLocaleString()}</p>
+                </div>
+                {request.objectKeys && request.objectKeys.length > 0 && (
+                  <div className="request-meta-item">
+                    <span className="meta-label">Files</span>
+                    <p className="meta-value">{request.objectKeys.length} file(s)</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="request-card-actions">
+                <button
+                  type="button"
+                  className="card-expand-button"
+                  onClick={() => setExpandedRequestId(expandedRequestId === request.id ? null : request.id)}
+                >
+                  {expandedRequestId === request.id ? 'Hide details' : 'Show details'}
+                </button>
+              </div>
+
+              {expandedRequestId === request.id && (
+                <div className="request-card-expanded">
+                  <RedeemRequestForm request={request} onRedeemed={loadRequests} />
+                </div>
+              )}
+            </article>
+          ))}
         </div>
       )}
     </section>

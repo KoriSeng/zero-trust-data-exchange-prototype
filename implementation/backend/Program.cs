@@ -200,23 +200,10 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
 // User is automatically JIT provisioned by JitProvisioningClaimsTransformation during authentication
 app.MapGet("/me", async (HttpContext context, IDataService dataService) =>
 {
-    var meLogger = context.RequestServices
-        .GetRequiredService<ILoggerFactory>()
-        .CreateLogger("MeEndpoint");
-    var claimsDump = string.Join(
-        "; ",
-        context.User.Claims.Select(c => $"{c.Type}={c.Value}"));
-    var meTraceMessage =
-        $"/me claims dump: authType={context.User.Identity?.AuthenticationType ?? "null"}, " +
-        $"isAuthenticated={context.User.Identity?.IsAuthenticated ?? false}, " +
-        $"claimCount={context.User.Claims.Count()}, claims=[{claimsDump}]";
-    meLogger.LogWarning(meTraceMessage);
-    Console.WriteLine(meTraceMessage);
-
     // User is already authenticated and provisioned
     var userId = context.User.FindFirst("user_id")?.Value;
-    var userEmail = context.User.FindFirst("user_email")?.Value;
-    var userDisplayName = context.User.FindFirst("user_display_name")?.Value;
+    var userEmail = context.User.FindFirst("email")?.Value;
+    var userDisplayName = context.User.FindFirst("name")?.Value;
     var organizationId = context.User.FindFirst("user_organization")?.Value;
     var organizationNameFromClaims = context.User.FindFirst("user_organization_name")?.Value;
     var identityProvider = context.User.FindFirst("identity_provider")?.Value;
@@ -357,7 +344,7 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
 {
     // User is already authenticated and provisioned
     var requesterId = context.User.FindFirst("user_id")?.Value;
-    var requesterEmail = context.User.FindFirst("user_email")?.Value;
+    var requesterEmail = context.User.FindFirst("email")?.Value;
     var requesterOrg = context.User.FindFirst("user_organization")?.Value;
 
     if (string.IsNullOrEmpty(requesterId) || string.IsNullOrEmpty(requesterOrg))
@@ -366,46 +353,61 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
     }
 
     // Validate request
+    if (string.IsNullOrWhiteSpace(request.DatasetId))
+    {
+        return Results.BadRequest(new { error = "DatasetId is required" });
+    }
+
     if (string.IsNullOrWhiteSpace(request.Purpose))
     {
         return Results.BadRequest(new { error = "Purpose is required" });
     }
 
-    if (request.ObjectKeys == null || request.ObjectKeys.Count == 0)
+    // Fetch dataset metadata from catalog (single source of truth)
+    var dataset = await dataService.GetDatasetCatalogItemByDatasetIdAsync(request.DatasetId.Trim());
+    if (dataset == null)
     {
-        return Results.BadRequest(new { error = "At least one object key is required" });
+        return Results.NotFound(new { error = $"Dataset '{request.DatasetId}' not found in catalog" });
     }
 
-    if (string.IsNullOrWhiteSpace(request.DataOwnerOrg))
+    if (!dataset.IsPublished)
     {
-        return Results.BadRequest(new { error = "DataOwnerOrg is required" });
+        return Results.BadRequest(new { error = $"Dataset '{request.DatasetId}' is not published" });
     }
 
-    // Resolve DataOwnerOrg short name (e.g. "ORG-B") to the internal org ID
-    var dataOwnerOrg = await dataService.GetOrganizationByShortNameAsync(request.DataOwnerOrg);
+    if (dataset.ObjectKeys == null || dataset.ObjectKeys.Count == 0)
+    {
+        return Results.BadRequest(new { error = $"Dataset '{request.DatasetId}' has no object keys configured" });
+    }
+
+    // Resolve DataOwnerOrg short name to internal org ID
+    var dataOwnerOrg = await dataService.GetOrganizationByShortNameAsync(dataset.DataOwnerOrgShortName);
     if (dataOwnerOrg == null)
     {
-        return Results.BadRequest(new { error = $"Organization '{request.DataOwnerOrg}' not found" });
+        return Results.Problem(
+            title: "Configuration error",
+            detail: $"Organization '{dataset.DataOwnerOrgShortName}' for dataset '{request.DatasetId}' not found in database",
+            statusCode: 500
+        );
     }
 
     // Check if objects exist in S3 — warn only; the hard check occurs at redemption
-    // when pre-signed URLs are generated. In a local/test environment S3 may not be
-    // seeded yet and we do not want to block submission.
     var dataBucket = context.RequestServices.GetRequiredService<IConfiguration>()["AWS:S3:DataBucket"] ?? "zero-trust-data";
-    var objectsExist = await s3Service.ObjectsExistAsync(dataBucket, request.ObjectKeys);
+    var objectsExist = await s3Service.ObjectsExistAsync(dataBucket, dataset.ObjectKeys);
     if (!objectsExist)
     {
         logger.LogWarning(
-            "Submitted request for objects that were not found in S3 bucket {bucket}: {keys}",
+            "Dataset {datasetId} references objects not found in S3 bucket {bucket}: {keys}",
+            request.DatasetId,
             dataBucket,
-            string.Join(", ", request.ObjectKeys)
+            string.Join(", ", dataset.ObjectKeys)
         );
     }
 
     var activeAgreement = await dataService.GetActiveAgreementAsync(dataOwnerOrg.Id)
         ?? await dataService.GetActiveAgreementAsync();
 
-    // Create request in database
+    // Create request in database using catalog data
     var dataAccessRequest = new DataAccessRequest
     {
         Id = Guid.NewGuid().ToString(),
@@ -413,10 +415,10 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
         RequesterId = requesterId,
         RequesterEmail = requesterEmail ?? "unknown@example.com",
         RequesterOrg = requesterOrg ?? "UNKNOWN",
-        DatasetId = request.DatasetId,
-        DatasetName = request.DatasetName,
-        ObjectKeys = request.ObjectKeys,
-        Purpose = request.Purpose,
+        DatasetId = dataset.DatasetId,
+        DatasetName = dataset.Name,
+        ObjectKeys = dataset.ObjectKeys,
+        Purpose = request.Purpose.Trim(),
         DataOwnerOrg = dataOwnerOrg.Id,
         UserAgreementId = activeAgreement?.AgreementId,
         UserAgreementVersion = activeAgreement?.Version,
@@ -442,10 +444,10 @@ app.MapPost("/requests", async (HttpContext context, CreateDataAccessRequestDto 
                 { "requester_id", requesterId },
                 { "requester_email", requesterEmail ?? "unknown@example.com" },
                 { "requester_org", requesterOrg ?? "UNKNOWN" },
-                { "dataset_id", request.DatasetId },
-                { "purpose", request.Purpose },
+                { "dataset_id", dataset.DatasetId },
+                { "purpose", request.Purpose.Trim() },
                 { "data_owner_org", dataOwnerOrg.Id },
-                { "object_keys", request.ObjectKeys }
+                { "object_keys", dataset.ObjectKeys }
             };
 
             workflowExecutionArn = await stepFunctionsService.StartApprovalWorkflowAsync(

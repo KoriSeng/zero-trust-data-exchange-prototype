@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import apiCall from '../api/client';
+import OtpEmailModal from './OtpEmailModal';
 
 function canRedeem(status) {
   return (
@@ -25,6 +26,7 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
   const [downloadingKey, setDownloadingKey] = useState('');
   const [lastDownloadExpiry, setLastDownloadExpiry] = useState('');
   const [showDownloadFiles, setShowDownloadFiles] = useState(false);
+  const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
 
   if (!canRedeem(request.status) && !canDownload(request.status)) {
     return <span className="muted-text">—</span>;
@@ -66,6 +68,7 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
     try {
       const result = await apiCall(`/requests/${request.id}/otp/email`);
       setOtpEmailPreview(result);
+      setIsOtpModalOpen(true);
       if (result?.otpCode) {
         setOtp(result.otpCode);
       }
@@ -105,24 +108,7 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
         </div>
       )}
 
-      {canRedeem(request.status) && otpEmailPreview && (
-        <div className="otp-debug-panel">
-          <p>
-            <strong>Debug OTP email preview</strong> (prototype mode)
-          </p>
-          <p>
-            To: <strong>{otpEmailPreview.to}</strong>
-          </p>
-          <p>
-            Subject: <strong>{otpEmailPreview.subject}</strong>
-          </p>
-          <p>
-            OTP code: <strong>{otpEmailPreview.otpCode}</strong>
-          </p>
-          {otpEmailPreview.expiresAt && <p>Expires at: {new Date(otpEmailPreview.expiresAt).toLocaleString()}</p>}
-          <pre>{otpEmailPreview.textBody}</pre>
-        </div>
-      )}
+      <OtpEmailModal isOpen={isOtpModalOpen} onClose={() => setIsOtpModalOpen(false)} otpEmailPreview={otpEmailPreview} />
 
       {canRedeem(request.status) && (
         <form className="inline-form" onSubmit={handleRedeem}>

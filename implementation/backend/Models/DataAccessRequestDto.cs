@@ -6,29 +6,14 @@ namespace ZeroTrust.Backend.Models;
 public class CreateDataAccessRequestDto
 {
     /// <summary>
-    /// Dataset ID being requested
+    /// Dataset ID being requested (verified against catalog)
     /// </summary>
     public string DatasetId { get; set; } = null!;
-
-    /// <summary>
-    /// Human-readable dataset name
-    /// </summary>
-    public string? DatasetName { get; set; }
-
-    /// <summary>
-    /// S3 object keys requested (e.g., ["data/file1.csv", "data/file2.csv"])
-    /// </summary>
-    public List<string> ObjectKeys { get; set; } = new();
 
     /// <summary>
     /// Purpose/justification for access
     /// </summary>
     public string Purpose { get; set; } = null!;
-
-    /// <summary>
-    /// Organization that owns the dataset
-    /// </summary>
-    public string DataOwnerOrg { get; set; } = null!;
 
     /// <summary>
     /// Optional metadata or additional context

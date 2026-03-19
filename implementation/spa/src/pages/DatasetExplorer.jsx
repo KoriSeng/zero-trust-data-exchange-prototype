@@ -68,10 +68,7 @@ export default function DatasetExplorer() {
           method: 'POST',
           body: JSON.stringify({
             datasetId: dataset.datasetId,
-            datasetName: dataset.name,
             purpose: purpose.trim(),
-            objectKeys: dataset.objectKeys ?? [],
-            dataOwnerOrg: dataset.dataOwnerOrg,
           }),
         });
 

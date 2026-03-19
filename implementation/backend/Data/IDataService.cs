@@ -50,6 +50,7 @@ public interface IDataService
     Task UpdateDataAccessRequestAsync(DataAccessRequest request);
     Task<List<DataAccessRequest>> GetRequestsByStatusAsync(RequestStatus status, int limit = 100);
     Task<List<DatasetCatalogItem>> GetPublishedDatasetCatalogItemsAsync(int limit = 200);
+    Task<DatasetCatalogItem?> GetDatasetCatalogItemByDatasetIdAsync(string datasetId);
     Task PutDatasetCatalogItemAsync(DatasetCatalogItem item);
 
     // AuditEvent operations

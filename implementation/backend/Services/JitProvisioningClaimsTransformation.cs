@@ -131,8 +131,8 @@ public class JitProvisioningClaimsTransformation : IClaimsTransformation
             // Add user metadata claims
             AddClaimIfMissing(identity, "user_id", user.Id);
             AddClaimIfMissing(identity, "user_sub", user.Sub);
-            AddClaimIfMissing(identity, "user_email", user.Email ?? "unknown@example.com");
-            AddClaimIfMissing(identity, "user_display_name", user.DisplayName ?? "Unknown User");
+            AddClaimIfMissing(identity, "email", user.Email ?? "unknown@example.com");
+            AddClaimIfMissing(identity, "name", user.DisplayName ?? "Unknown User");
             AddClaimIfMissing(identity, "user_organization", user.OrganizationId ?? "UNKNOWN");
             AddClaimIfMissing(identity, "user_organization_name", await ResolveOrganizationNameAsync(user.OrganizationId));
             AddClaimIfMissing(identity, "user_status", user.Status.ToString());
