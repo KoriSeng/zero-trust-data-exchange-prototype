@@ -1,6 +1,17 @@
 import { useState } from 'react';
 import apiCall from '../api/client';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import OtpEmailModal from './OtpEmailModal';
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+
+function toApiUrl(path) {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath;
+}
 
 function canRedeem(status) {
   return (
@@ -82,18 +93,21 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
     setDownloadError('');
     setDownloadingKey(objectKey);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/requests/${request.id}/download`, {
+      const session = await fetchAuthSession();
+      const token = session.tokens?.idToken?.toString();
+      
+      const response = await fetch(toApiUrl(`/requests/${request.id}/download`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('id_token')}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ objectKey }),
         redirect: 'manual',
       });
 
       if (response.type === 'opaqueredirect' || response.status === 0) {
-        window.location.href = response.url || `${import.meta.env.VITE_API_BASE_URL}/requests/${request.id}/download`;
+        window.location.href = response.url || toApiUrl(`/requests/${request.id}/download`);
         return;
       }
 

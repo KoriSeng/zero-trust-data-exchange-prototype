@@ -16,6 +16,11 @@ public interface IS3Service
     Task<string> GeneratePresignedUrlAsync(string bucket, string objectKey, TimeSpan expiration);
 
     /// <summary>
+    /// Generate pre-signed download URL with Content-Disposition header to force download
+    /// </summary>
+    Task<string> GeneratePresignedDownloadUrlAsync(string bucket, string objectKey, TimeSpan expiration);
+
+    /// <summary>
     /// List objects in bucket with prefix
     /// </summary>
     Task<List<string>> ListObjectsAsync(string bucket, string? prefix = null);

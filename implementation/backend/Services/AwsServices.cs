@@ -68,6 +68,34 @@ public class S3Service : IS3Service
         }
     }
 
+    public async Task<string> GeneratePresignedDownloadUrlAsync(string bucket, string objectKey, TimeSpan expiration)
+    {
+        try
+        {
+            var fileName = objectKey.Split('/').LastOrDefault() ?? objectKey;
+            var request = new GetPreSignedUrlRequest
+            {
+                BucketName = bucket,
+                Key = objectKey,
+                Expires = DateTime.UtcNow.Add(expiration),
+                Verb = HttpVerb.GET,
+                ResponseHeaderOverrides = new ResponseHeaderOverrides
+                {
+                    ContentDisposition = $"attachment; filename=\"{fileName}\""
+                }
+            };
+
+            var url = _s3Client.GetPreSignedURL(request);
+            _logger.LogInformation("Generated pre-signed download URL for {bucket}/{key} with Content-Disposition", bucket, objectKey);
+            return url;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating pre-signed download URL for {bucket}/{key}", bucket, objectKey);
+            throw;
+        }
+    }
+
     public async Task<List<string>> ListObjectsAsync(string bucket, string? prefix = null)
     {
         try
