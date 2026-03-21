@@ -163,16 +163,20 @@ export default function RedeemRequestForm({ request, onRedeemed }) {
 
       {redemptionResult?.presignedUrls && (
         <details className="link-details">
-          <summary>View generated download links</summary>
-          <ul>
-            {Object.entries(redemptionResult.presignedUrls).map(([key, url]) => (
-              <li key={key}>
-                <a href={url} target="_blank" rel="noreferrer">
-                  {key}
-                </a>
-              </li>
+          <summary>Download redeemed files</summary>
+          <div className="button-row">
+            {Object.keys(redemptionResult.presignedUrls).map((objectKey) => (
+              <button
+                key={objectKey}
+                type="button"
+                className="secondary-button"
+                onClick={() => handleDownloadKey(objectKey)}
+                disabled={Boolean(downloadingKey) && downloadingKey === objectKey}
+              >
+                {downloadingKey === objectKey ? 'Generating link…' : `Download ${objectKey.split('/').pop() ?? objectKey}`}
+              </button>
             ))}
-          </ul>
+          </div>
         </details>
       )}
     </div>
