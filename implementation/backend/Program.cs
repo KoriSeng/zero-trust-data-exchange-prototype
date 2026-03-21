@@ -93,7 +93,7 @@ builder.Services.AddAuthentication()
                 }
 
                 var organizations = await dataService.GetAllOrganizationsAsync();
-                var organization = CognitoGroupMapper.FindMatchingOrganization(organizations, groups[0]);
+                var organization = CognitoGroupMapper.FindMatchingOrganization(organizations, groups);
                 if (organization == null)
                 {
                     context.Fail($"Organization not found for cognito:groups ({string.Join(", ", groups)})");

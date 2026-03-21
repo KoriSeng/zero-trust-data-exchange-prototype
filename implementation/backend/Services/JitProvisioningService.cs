@@ -68,16 +68,6 @@ public class JitProvisioningService : IJitProvisioningService
                 return null;
             }
 
-            // Check if user already exists
-            var existingUser = await _dataService.GetUserBySubAsync(sub);
-            if (existingUser != null)
-            {
-                // Update last login
-                existingUser.LastAccessAt = DateTime.UtcNow;
-                await _dataService.UpdateUserAsync(existingUser);
-                return existingUser;
-            }
-
             // Extract Cognito groups (auto-generated group IDs like "ap-southeast-1_lq8PdxNkF_IDP-A")
             var cognitoGroups = ExtractCognitoGroups(jwtClaims);
             var primaryGroup = cognitoGroups.FirstOrDefault();
@@ -92,9 +82,9 @@ public class JitProvisioningService : IJitProvisioningService
             }
 
             var organizations = await _dataService.GetAllOrganizationsAsync();
-            if (!string.IsNullOrWhiteSpace(primaryGroup))
+            if (cognitoGroups.Count > 0)
             {
-                organization = CognitoGroupMapper.FindMatchingOrganization(organizations, primaryGroup);
+                organization = CognitoGroupMapper.FindMatchingOrganization(organizations, cognitoGroups);
             }
 
             if (organization == null && !string.IsNullOrWhiteSpace(providerName))
@@ -103,20 +93,43 @@ public class JitProvisioningService : IJitProvisioningService
                 if (organization != null)
                 {
                     _logger.LogInformation(
-                        "Resolved organization from identities provider fallback: provider={providerName}, orgId={orgId}",
-                        providerName,
-                        organization.Id);
+                    "Resolved organization from identities provider fallback: provider={providerName}, orgId={orgId}",
+                    providerName,
+                    organization.Id);
                 }
             }
 
             if (organization == null)
             {
                 _logger.LogWarning(
-                    "No organization found for Cognito group {cognitoGroup} (provider fallback: {providerName})",
-                    primaryGroup ?? "null",
+                    "No organization found for Cognito groups {cognitoGroups} (provider fallback: {providerName})",
+                    cognitoGroups.Count > 0 ? string.Join(", ", cognitoGroups) : "none",
                     providerName ?? "null"
                 );
                 return null;
+            }
+
+            // Check if user already exists
+            var existingUser = await _dataService.GetUserBySubAsync(sub);
+            if (existingUser != null)
+            {
+                var orgChanged = !string.Equals(existingUser.OrganizationId, organization.Id, StringComparison.Ordinal);
+                if (orgChanged)
+                {
+                    var previousOrgId = existingUser.OrganizationId;
+                    existingUser.OrganizationId = organization.Id;
+                    _logger.LogWarning(
+                        "Corrected user {userId} organization based on Cognito group mapping: oldOrg={oldOrg}, newOrg={newOrg}",
+                        existingUser.Id,
+                        previousOrgId,
+                        organization.Id);
+                }
+
+                existingUser.LastAccessAt = DateTime.UtcNow;
+                await _dataService.UpdateUserAsync(existingUser);
+
+                await EnsureRoleAlignmentAsync(existingUser, organization);
+                return existingUser;
             }
 
             // Create new user
@@ -149,16 +162,7 @@ public class JitProvisioningService : IJitProvisioningService
                 _logger.LogInformation("Assigned Requester role to new user {userId}", newUser.Id);
             }
 
-            // In this prototype, Org A acts as dataset custodian/data owner.
-            if (string.Equals(organization?.ShortName, "ORG-A", StringComparison.OrdinalIgnoreCase))
-            {
-                var dataOwnerRole = await _dataService.GetRoleByNameAsync(RoleNames.DataOwner);
-                if (dataOwnerRole != null)
-                {
-                    await _dataService.AssignRoleToUserAsync(newUser.Id, dataOwnerRole.Id, "system");
-                    _logger.LogInformation("Assigned DataOwner role to Org A user {userId}", newUser.Id);
-                }
-            }
+            await EnsureRoleAlignmentAsync(newUser, organization);
 
             return newUser;
         }
@@ -332,5 +336,34 @@ public class JitProvisioningService : IJitProvisioningService
         }
 
         return (null, null);
+    }
+
+    private async Task EnsureRoleAlignmentAsync(User user, Organization organization)
+    {
+        var userRoles = await _dataService.GetUserRolesAsync(user.Id);
+        var requesterRole = userRoles.FirstOrDefault(r => string.Equals(r.Name, RoleNames.Requester, StringComparison.OrdinalIgnoreCase))
+            ?? await _dataService.GetRoleByNameAsync(RoleNames.Requester);
+        var dataOwnerRole = userRoles.FirstOrDefault(r => string.Equals(r.Name, RoleNames.DataOwner, StringComparison.OrdinalIgnoreCase))
+            ?? await _dataService.GetRoleByNameAsync(RoleNames.DataOwner);
+
+        if (requesterRole != null && !userRoles.Any(r => r.Id == requesterRole.Id))
+        {
+            await _dataService.AssignRoleToUserAsync(user.Id, requesterRole.Id, "system");
+            _logger.LogInformation("Assigned missing Requester role to user {userId}", user.Id);
+        }
+
+        var shouldHaveDataOwner = string.Equals(organization.ShortName, "ORG-A", StringComparison.OrdinalIgnoreCase);
+        var hasDataOwner = dataOwnerRole != null && userRoles.Any(r => r.Id == dataOwnerRole.Id);
+
+        if (shouldHaveDataOwner && dataOwnerRole != null && !hasDataOwner)
+        {
+            await _dataService.AssignRoleToUserAsync(user.Id, dataOwnerRole.Id, "system");
+            _logger.LogInformation("Assigned DataOwner role to Org A user {userId}", user.Id);
+        }
+        else if (!shouldHaveDataOwner && dataOwnerRole != null && hasDataOwner)
+        {
+            await _dataService.RemoveRoleFromUserAsync(user.Id, dataOwnerRole.Id);
+            _logger.LogWarning("Removed stale DataOwner role from non-Org-A user {userId}", user.Id);
+        }
     }
 }

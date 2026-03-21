@@ -6,33 +6,73 @@ public static class CognitoGroupMapper
 {
     public static Organization? FindMatchingOrganization(
         IEnumerable<Organization> organizations,
+        IEnumerable<string> cognitoGroups)
+    {
+        var allOrganizations = organizations.ToList();
+        var normalizedGroups = cognitoGroups
+            .Select(NormalizeGroupValue)
+            .Where(g => !string.IsNullOrWhiteSpace(g))
+            .ToList();
+
+        if (normalizedGroups.Count == 0)
+        {
+            return null;
+        }
+
+        // Priority 1: exact Cognito group match from configured seed values.
+        foreach (var group in normalizedGroups)
+        {
+            var exactGroup = allOrganizations.FirstOrDefault(o =>
+                string.Equals(o.CognitoGroupName, group, StringComparison.OrdinalIgnoreCase));
+            if (exactGroup != null)
+            {
+                return exactGroup;
+            }
+        }
+
+        // Priority 2: direct IdP name match from incoming values.
+        foreach (var group in normalizedGroups)
+        {
+            var exactIdp = allOrganizations.FirstOrDefault(o =>
+                string.Equals(o.CognitoIdpName, group, StringComparison.OrdinalIgnoreCase));
+            if (exactIdp != null)
+            {
+                return exactIdp;
+            }
+        }
+
+        // Priority 3: derive IdP name from Cognito auto-generated group suffixes.
+        foreach (var group in normalizedGroups)
+        {
+            var idpName = ExtractIdpName(group);
+            if (string.IsNullOrWhiteSpace(idpName))
+            {
+                continue;
+            }
+
+            var byIdpName = allOrganizations.FirstOrDefault(o =>
+                string.Equals(o.CognitoIdpName, idpName, StringComparison.OrdinalIgnoreCase));
+            if (byIdpName != null)
+            {
+                return byIdpName;
+            }
+
+            var byGroupSuffix = allOrganizations.FirstOrDefault(o =>
+                o.CognitoGroupName.EndsWith($"_{idpName}", StringComparison.OrdinalIgnoreCase));
+            if (byGroupSuffix != null)
+            {
+                return byGroupSuffix;
+            }
+        }
+
+        return null;
+    }
+
+    public static Organization? FindMatchingOrganization(
+        IEnumerable<Organization> organizations,
         string cognitoGroup)
     {
-        var normalizedGroup = NormalizeGroupValue(cognitoGroup);
-        if (string.IsNullOrWhiteSpace(normalizedGroup))
-        {
-            return null;
-        }
-
-        var allOrganizations = organizations.ToList();
-
-        var exact = allOrganizations.FirstOrDefault(o =>
-            string.Equals(o.CognitoGroupName, normalizedGroup, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(o.CognitoIdpName, normalizedGroup, StringComparison.OrdinalIgnoreCase));
-        if (exact != null)
-        {
-            return exact;
-        }
-
-        var idpName = ExtractIdpName(normalizedGroup);
-        if (string.IsNullOrEmpty(idpName))
-        {
-            return null;
-        }
-
-        return allOrganizations.FirstOrDefault(o =>
-            string.Equals(o.CognitoIdpName, idpName, StringComparison.OrdinalIgnoreCase) ||
-            o.CognitoGroupName.EndsWith($"_{idpName}", StringComparison.OrdinalIgnoreCase));
+        return FindMatchingOrganization(organizations, new[] { cognitoGroup });
     }
 
     private static string? ExtractIdpName(string cognitoGroup)
