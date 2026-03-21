@@ -128,6 +128,19 @@ project_name = "zero-trust-prototype"
 
 **Never commit `terraform.tfvars` with sensitive data!**
 
+### Audit logging configuration
+
+The prototype can emit richer audit telemetry to CloudWatch:
+
+- **Step Functions execution logs** (in-stack approval workflow only) with configurable execution data inclusion.
+- **S3 object data events** captured by CloudTrail and delivered to CloudWatch Logs.
+
+Controls (see `terraform.tfvars.example`):
+
+- `enable_sfn_execution_logging` (default `true`)
+- `sfn_include_execution_data` (default `true`)
+- `enable_s3_data_events_cloudtrail` (default `true`)
+
 ### OTP debug note
 
 For this PoC flow, OTP delivery is simulated. The backend returns a debug email preview payload

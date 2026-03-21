@@ -245,27 +245,27 @@ resource "aws_iam_role_policy" "task_app" {
         Effect   = "Allow"
         Action   = ["states:StartExecution", "states:DescribeExecution"]
         Resource = [var.step_functions_approval_arn]
-      },
-      {
-        Effect = "Allow"
-        Action = ["states:SendTaskSuccess", "states:SendTaskFailure"]
-        Resource = ["*"]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:ReceiveMessage",
-          "sqs:DeleteMessage",
-          "sqs:ChangeMessageVisibility",
-          "sqs:GetQueueAttributes",
-          "sqs:GetQueueUrl"
-        ]
-        Resource = compact([
-          var.step_functions_approval_decision_queue_arn,
-          var.step_functions_approval_otp_dispatch_queue_arn,
-          var.step_functions_claim_callback_queue_arn,
-          var.step_functions_claim_timeout_queue_arn
-        ])
+        },
+        {
+          Effect   = "Allow"
+          Action   = ["states:SendTaskSuccess", "states:SendTaskFailure"]
+          Resource = ["*"]
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "sqs:ReceiveMessage",
+            "sqs:DeleteMessage",
+            "sqs:ChangeMessageVisibility",
+            "sqs:GetQueueAttributes",
+            "sqs:GetQueueUrl"
+          ]
+          Resource = compact([
+            var.step_functions_approval_decision_queue_arn,
+            var.step_functions_approval_otp_dispatch_queue_arn,
+            var.step_functions_claim_callback_queue_arn,
+            var.step_functions_claim_timeout_queue_arn
+          ])
       }] : []
     )
   })

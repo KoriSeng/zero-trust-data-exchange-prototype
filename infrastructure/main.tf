@@ -71,11 +71,29 @@ variable "enable_logs_kms_cmk" {
   default     = true
 }
 
+variable "enable_sfn_execution_logging" {
+  description = "Enable Step Functions execution logging to CloudWatch Logs for in-stack state machine"
+  type        = bool
+  default     = true
+}
+
+variable "sfn_include_execution_data" {
+  description = "Include execution input/output data in Step Functions logs"
+  type        = bool
+  default     = true
+}
+
+variable "enable_s3_data_events_cloudtrail" {
+  description = "Enable CloudTrail data events for the PoC S3 bucket and deliver them to CloudWatch Logs"
+  type        = bool
+  default     = true
+}
+
 # Data source to get current AWS account ID
 data "aws_caller_identity" "current" {}
 
 locals {
-  logs_kms_key_arn     = var.enable_logs_kms_cmk ? aws_kms_key.logs[0].arn : ""
+  logs_kms_key_arn = var.enable_logs_kms_cmk ? aws_kms_key.logs[0].arn : ""
   resolved_sfn_approval_arn = (
     var.step_functions_approval_arn != ""
     ? var.step_functions_approval_arn
@@ -247,17 +265,41 @@ resource "aws_iam_role_policy" "stepfunctions_claim_callbacks" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["sqs:SendMessage"]
-      Resource = [
-        aws_sqs_queue.approval_decision_callbacks[0].arn,
-        aws_sqs_queue.approval_otp_dispatch[0].arn,
-        aws_sqs_queue.approval_claim_callbacks[0].arn,
-        aws_sqs_queue.approval_claim_timeouts[0].arn
-      ]
-    }]
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["sqs:SendMessage"]
+        Resource = [
+          aws_sqs_queue.approval_decision_callbacks[0].arn,
+          aws_sqs_queue.approval_otp_dispatch[0].arn,
+          aws_sqs_queue.approval_claim_callbacks[0].arn,
+          aws_sqs_queue.approval_claim_timeouts[0].arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogDelivery",
+          "logs:GetLogDelivery",
+          "logs:UpdateLogDelivery",
+          "logs:DeleteLogDelivery",
+          "logs:ListLogDeliveries",
+          "logs:PutResourcePolicy",
+          "logs:DescribeResourcePolicies",
+          "logs:DescribeLogGroups"
+        ]
+        Resource = "*"
+      }
+    ]
   })
+}
+
+resource "aws_cloudwatch_log_group" "sfn_execution" {
+  count = var.step_functions_approval_arn == "" && var.enable_sfn_execution_logging ? 1 : 0
+
+  name              = "/aws/vendedlogs/states/${var.project_name}-${var.environment}-approval-workflow"
+  retention_in_days = 30
+  kms_key_id        = local.logs_kms_key_arn != "" ? local.logs_kms_key_arn : null
 }
 
 resource "aws_sfn_state_machine" "approval" {
@@ -289,9 +331,9 @@ resource "aws_sfn_state_machine" "approval" {
             "taskToken.$" = "$$.Task.Token"
           }
         }
-        ResultPath = "$.approvalDecision"
+        ResultPath     = "$.approvalDecision"
         TimeoutSeconds = 86400
-        Next = "SendOtp"
+        Next           = "SendOtp"
       }
       SendOtp = {
         Type     = "Task"
@@ -299,13 +341,13 @@ resource "aws_sfn_state_machine" "approval" {
         Parameters = {
           QueueUrl = aws_sqs_queue.approval_otp_dispatch[0].url
           MessageBody = {
-            "requestId.$" = "$.request_id"
-            state         = "OTP_DISPATCH"
+            "requestId.$"  = "$.request_id"
+            state          = "OTP_DISPATCH"
             "approvedAt.$" = "$$.State.EnteredTime"
           }
         }
         ResultPath = "$.otpDispatch"
-        Next = "ClaimPending"
+        Next       = "ClaimPending"
       }
       ClaimPending = {
         Type     = "Task"
@@ -319,13 +361,13 @@ resource "aws_sfn_state_machine" "approval" {
           }
         }
         TimeoutSeconds = 86400
-        ResultPath = "$.claimResult"
-        Next = "AccessWindowWait"
+        ResultPath     = "$.claimResult"
+        Next           = "AccessWindowWait"
       }
       AccessWindowWait = {
-        Type            = "Wait"
-        SecondsPath     = "$.approvalDecision.claim_window_seconds"
-        Next            = "DisableClaim"
+        Type        = "Wait"
+        SecondsPath = "$.approvalDecision.claim_window_seconds"
+        Next        = "DisableClaim"
       }
       DisableClaim = {
         Type     = "Task"
@@ -333,9 +375,9 @@ resource "aws_sfn_state_machine" "approval" {
         Parameters = {
           QueueUrl = aws_sqs_queue.approval_claim_timeouts[0].url
           MessageBody = {
-            "requestId.$"  = "$.request_id"
-            state          = "CLAIM_WINDOW_EXPIRED"
-            "expiredAt.$"  = "$$.State.EnteredTime"
+            "requestId.$"     = "$.request_id"
+            state             = "CLAIM_WINDOW_EXPIRED"
+            "expiredAt.$"     = "$$.State.EnteredTime"
             "windowSeconds.$" = "$.approvalDecision.claim_window_seconds"
           }
         }
@@ -347,6 +389,15 @@ resource "aws_sfn_state_machine" "approval" {
       }
     }
   })
+
+  dynamic "logging_configuration" {
+    for_each = var.enable_sfn_execution_logging ? [1] : []
+    content {
+      level                  = "ALL"
+      include_execution_data = var.sfn_include_execution_data
+      log_destination        = "${aws_cloudwatch_log_group.sfn_execution[0].arn}:*"
+    }
+  }
 }
 
 # ============================================================================
@@ -413,6 +464,136 @@ module "s3_poc" {
   exempt_user_arn  = data.aws_caller_identity.current.arn
 }
 
+resource "aws_s3_bucket" "cloudtrail_logs" {
+  count = var.enable_s3_data_events_cloudtrail ? 1 : 0
+
+  bucket = "${var.project_name}-${var.environment}-cloudtrail-logs-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_public_access_block" "cloudtrail_logs" {
+  count = var.enable_s3_data_events_cloudtrail ? 1 : 0
+
+  bucket                  = aws_s3_bucket.cloudtrail_logs[0].id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+data "aws_iam_policy_document" "cloudtrail_bucket_policy" {
+  count = var.enable_s3_data_events_cloudtrail ? 1 : 0
+
+  statement {
+    sid    = "AWSCloudTrailAclCheck"
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+    actions   = ["s3:GetBucketAcl"]
+    resources = [aws_s3_bucket.cloudtrail_logs[0].arn]
+  }
+
+  statement {
+    sid    = "AWSCloudTrailWrite"
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+    actions = ["s3:PutObject"]
+    resources = [
+      "${aws_s3_bucket.cloudtrail_logs[0].arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "cloudtrail_logs" {
+  count = var.enable_s3_data_events_cloudtrail ? 1 : 0
+
+  bucket = aws_s3_bucket.cloudtrail_logs[0].id
+  policy = data.aws_iam_policy_document.cloudtrail_bucket_policy[0].json
+}
+
+resource "aws_cloudwatch_log_group" "s3_data_events" {
+  count = var.enable_s3_data_events_cloudtrail ? 1 : 0
+
+  name              = "/aws/cloudtrail/${var.project_name}-${var.environment}-s3-data-events"
+  retention_in_days = 30
+  kms_key_id        = local.logs_kms_key_arn != "" ? local.logs_kms_key_arn : null
+}
+
+resource "aws_iam_role" "cloudtrail_to_cwlogs" {
+  count = var.enable_s3_data_events_cloudtrail ? 1 : 0
+
+  name = "${var.project_name}-${var.environment}-cloudtrail-cwlogs-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "cloudtrail.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "cloudtrail_to_cwlogs" {
+  count = var.enable_s3_data_events_cloudtrail ? 1 : 0
+
+  name = "${var.project_name}-${var.environment}-cloudtrail-cwlogs-policy"
+  role = aws_iam_role.cloudtrail_to_cwlogs[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ]
+      Resource = "${aws_cloudwatch_log_group.s3_data_events[0].arn}:*"
+    }]
+  })
+}
+
+resource "aws_cloudtrail" "s3_data_events" {
+  count = var.enable_s3_data_events_cloudtrail ? 1 : 0
+
+  name                          = "${var.project_name}-${var.environment}-s3-data-events"
+  s3_bucket_name                = aws_s3_bucket.cloudtrail_logs[0].id
+  include_global_service_events = false
+  is_multi_region_trail         = false
+  enable_logging                = true
+
+  cloud_watch_logs_group_arn = "${aws_cloudwatch_log_group.s3_data_events[0].arn}:*"
+  cloud_watch_logs_role_arn  = aws_iam_role.cloudtrail_to_cwlogs[0].arn
+
+  event_selector {
+    read_write_type           = "All"
+    include_management_events = false
+
+    data_resource {
+      type = "AWS::S3::Object"
+      values = [
+        "${module.s3_poc.bucket_arn}/"
+      ]
+    }
+  }
+
+  depends_on = [
+    aws_s3_bucket_policy.cloudtrail_logs,
+    aws_iam_role_policy.cloudtrail_to_cwlogs
+  ]
+}
+
 # ============================================================================
 # Cognito User Pool with OIDC Identity Providers
 # ============================================================================
@@ -461,24 +642,24 @@ module "backend_ecs" {
   subnet_az_a = "${var.aws_region}a"
   subnet_az_b = "${var.aws_region}b"
 
-  docdb_master_password         = var.docdb_master_password
-  docdb_master_username         = "ztadmin"
-  s3_data_bucket                = module.s3_poc.bucket_name
-  s3_requests_bucket            = module.s3_poc.bucket_name
-  step_functions_approval_arn   = local.resolved_sfn_approval_arn
-  step_functions_approval_decision_queue_url = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_decision_callbacks[0].url : ""
-  step_functions_approval_decision_queue_arn = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_decision_callbacks[0].arn : ""
+  docdb_master_password                          = var.docdb_master_password
+  docdb_master_username                          = "ztadmin"
+  s3_data_bucket                                 = module.s3_poc.bucket_name
+  s3_requests_bucket                             = module.s3_poc.bucket_name
+  step_functions_approval_arn                    = local.resolved_sfn_approval_arn
+  step_functions_approval_decision_queue_url     = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_decision_callbacks[0].url : ""
+  step_functions_approval_decision_queue_arn     = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_decision_callbacks[0].arn : ""
   step_functions_approval_otp_dispatch_queue_url = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_otp_dispatch[0].url : ""
   step_functions_approval_otp_dispatch_queue_arn = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_otp_dispatch[0].arn : ""
-  step_functions_claim_callback_queue_url = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_callbacks[0].url : ""
-  step_functions_claim_callback_queue_arn = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_callbacks[0].arn : ""
-  step_functions_claim_timeout_queue_url = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_timeouts[0].url : ""
-  step_functions_claim_timeout_queue_arn = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_timeouts[0].arn : ""
-  seed_database                 = true
-  seed_org_a_cognito_group_name = "${module.cognito.user_pool_id}_IDP-A"
-  seed_org_b_cognito_group_name = "${module.cognito.user_pool_id}_IDP-B"
-  seed_org_a_idp_issuer         = trimsuffix(module.idp_a.function_url, "/")
-  seed_org_b_idp_issuer         = trimsuffix(module.idp_b.function_url, "/")
+  step_functions_claim_callback_queue_url        = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_callbacks[0].url : ""
+  step_functions_claim_callback_queue_arn        = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_callbacks[0].arn : ""
+  step_functions_claim_timeout_queue_url         = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_timeouts[0].url : ""
+  step_functions_claim_timeout_queue_arn         = var.step_functions_approval_arn == "" ? aws_sqs_queue.approval_claim_timeouts[0].arn : ""
+  seed_database                                  = true
+  seed_org_a_cognito_group_name                  = "${module.cognito.user_pool_id}_IDP-A"
+  seed_org_b_cognito_group_name                  = "${module.cognito.user_pool_id}_IDP-B"
+  seed_org_a_idp_issuer                          = trimsuffix(module.idp_a.function_url, "/")
+  seed_org_b_idp_issuer                          = trimsuffix(module.idp_b.function_url, "/")
   cors_allowed_origins = [
     "https://${aws_cloudfront_distribution.spa.domain_name}"
   ]
@@ -592,4 +773,19 @@ output "backend_monitoring_dashboard_name" {
 output "logs_kms_key_arn" {
   description = "Shared KMS key ARN for CloudWatch log group encryption (null when disabled)"
   value       = local.logs_kms_key_arn != "" ? local.logs_kms_key_arn : null
+}
+
+output "sfn_execution_log_group_name" {
+  description = "CloudWatch log group name for in-stack Step Functions execution logs (null when disabled or external state machine ARN is used)"
+  value       = var.step_functions_approval_arn == "" && var.enable_sfn_execution_logging ? aws_cloudwatch_log_group.sfn_execution[0].name : null
+}
+
+output "s3_data_events_cloudtrail_name" {
+  description = "CloudTrail trail name used for S3 data event audit logging (null when disabled)"
+  value       = var.enable_s3_data_events_cloudtrail ? aws_cloudtrail.s3_data_events[0].name : null
+}
+
+output "s3_data_events_log_group_name" {
+  description = "CloudWatch log group name receiving S3 data event CloudTrail logs (null when disabled)"
+  value       = var.enable_s3_data_events_cloudtrail ? aws_cloudwatch_log_group.s3_data_events[0].name : null
 }

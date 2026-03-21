@@ -17,4 +17,15 @@ docdb_master_password = "change-me-strong-password-1"
 # Optional: disable shared CloudWatch Logs CMK creation/wiring for prototype testing.
 # enable_logs_kms_cmk = false
 
+# Optional: disable Step Functions execution logging (enabled by default).
+# Logs include execution metadata and, when enabled below, execution input/output data.
+# enable_sfn_execution_logging = false
+
+# Optional: suppress execution input/output payloads in Step Functions logs.
+# Keep true for full audit showcase metadata coverage.
+# sfn_include_execution_data = true
+
+# Optional: disable S3 object data-event audit logging via CloudTrail -> CloudWatch Logs.
+# enable_s3_data_events_cloudtrail = false
+
 # OTP email delivery is simulated in-app for this PoC (no SES variables required).

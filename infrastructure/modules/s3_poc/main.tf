@@ -9,13 +9,13 @@ locals {
   sample_root         = "${path.module}/sample"
   sample_files        = fileset(local.sample_root, "**/*")
   sample_content_type = {
-    txt    = "text/plain"
-    csv    = "text/csv"
-    tsv    = "text/tab-separated-values"
-    json   = "application/json"
-    jsonl  = "application/x-ndjson"
+    txt     = "text/plain"
+    csv     = "text/csv"
+    tsv     = "text/tab-separated-values"
+    json    = "application/json"
+    jsonl   = "application/x-ndjson"
     parquet = "application/octet-stream"
-    png    = "image/png"
+    png     = "image/png"
   }
 }
 
