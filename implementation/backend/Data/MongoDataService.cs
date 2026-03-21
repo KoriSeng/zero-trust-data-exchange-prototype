@@ -331,6 +331,19 @@ public class MongoDataService : IDataService
             .ToListAsync();
     }
 
+    public async Task<List<DataAccessRequest>> GetOwnerReviewRequestsByOrgAsync(string dataOwnerOrg, int limit = 100)
+    {
+        return await _requestsCollection
+            .Find(r => r.DataOwnerOrg == dataOwnerOrg &&
+                      (r.Status == RequestStatus.Approved ||
+                       r.Status == RequestStatus.OtpSent ||
+                       r.Status == RequestStatus.ClaimPending ||
+                       r.Status == RequestStatus.Redeemed))
+            .SortByDescending(r => r.UpdatedAt)
+            .Limit(limit)
+            .ToListAsync();
+    }
+
     public async Task PutRequestAsync(DataAccessRequest request)
     {
         await _requestsCollection.InsertOneAsync(request);

@@ -6,6 +6,9 @@ import StatusBadge from '../components/StatusBadge';
 import apiCall from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 
+const TAB_PENDING = 'pending';
+const TAB_APPROVED = 'approved';
+
 export default function PendingApprovals() {
   const { profile } = useAuth();
 
@@ -13,7 +16,9 @@ export default function PendingApprovals() {
   const canReviewApprovals =
     roles.length === 0 || roles.includes('DataOwner') || roles.includes('Admin');
 
-  const [requests, setRequests] = useState([]);
+  const [activeTab, setActiveTab] = useState(TAB_PENDING);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [approvedRequests, setApprovedRequests] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedRequestId, setExpandedRequestId] = useState(null);
@@ -22,11 +27,15 @@ export default function PendingApprovals() {
 
   const loadRequests = useCallback(async () => {
     try {
-      const response = await apiCall('/requests/pending');
-      setRequests(Array.isArray(response) ? response : []);
+      const [pendingResponse, approvedResponse] = await Promise.all([
+        apiCall('/requests/pending'),
+        apiCall('/requests/owner-review'),
+      ]);
+      setPendingRequests(Array.isArray(pendingResponse) ? pendingResponse : []);
+      setApprovedRequests(Array.isArray(approvedResponse) ? approvedResponse : []);
       setError('');
     } catch (loadError) {
-      setError(loadError.message ?? 'Could not load pending approvals.');
+      setError(loadError.message ?? 'Could not load approval queues.');
     } finally {
       setIsLoading(false);
     }
@@ -44,19 +53,30 @@ export default function PendingApprovals() {
     };
   }, [loadRequests]);
 
+  const activeRequests = activeTab === TAB_PENDING ? pendingRequests : approvedRequests;
+
   const rejectingRequest = useMemo(
-    () => requests.find((request) => request.id === rejectingRequestId) ?? null,
-    [rejectingRequestId, requests],
+    () =>
+      [...pendingRequests, ...approvedRequests].find(
+        (request) => request.id === rejectingRequestId,
+      ) ?? null,
+    [rejectingRequestId, pendingRequests, approvedRequests],
   );
 
   function removeRequest(requestId) {
-    setRequests((current) => current.filter((request) => request.id !== requestId));
+    setPendingRequests((current) => current.filter((request) => request.id !== requestId));
+    setApprovedRequests((current) => current.filter((request) => request.id !== requestId));
     setExpandedRequestId(null);
     setRejectingRequestId(null);
   }
 
   function handleApproved(request, result) {
-    removeRequest(request.id);
+    setPendingRequests((current) => current.filter((item) => item.id !== request.id));
+    setApprovedRequests((current) => [
+      { ...request, status: result?.status ?? 'OtpSent', updatedAt: new Date().toISOString() },
+      ...current.filter((item) => item.id !== request.id),
+    ]);
+    setExpandedRequestId(null);
     setOtpNotice({
       requestId: request.requestId,
       message: result?.message ?? 'Request approved.',
@@ -73,7 +93,24 @@ export default function PendingApprovals() {
 
   return (
     <section className="content-page stack-gap">
-      <h2>Pending approvals</h2>
+      <h2>Approvals</h2>
+
+      <div className="button-row">
+        <button
+          type="button"
+          className={activeTab === TAB_PENDING ? 'primary-button' : 'secondary-button'}
+          onClick={() => setActiveTab(TAB_PENDING)}
+        >
+          Pending ({pendingRequests.length})
+        </button>
+        <button
+          type="button"
+          className={activeTab === TAB_APPROVED ? 'primary-button' : 'secondary-button'}
+          onClick={() => setActiveTab(TAB_APPROVED)}
+        >
+          Approved / Active ({approvedRequests.length})
+        </button>
+      </div>
 
       {otpNotice && (
         <div className="success-banner">
@@ -87,12 +124,16 @@ export default function PendingApprovals() {
       {error && <p className="error-banner">{error}</p>}
 
       {isLoading ? (
-        <p>Loading pending approvals…</p>
-      ) : requests.length === 0 ? (
-        <p>No pending requests for your organisation.</p>
+        <p>Loading requests…</p>
+      ) : activeRequests.length === 0 ? (
+        <p>
+          {activeTab === TAB_PENDING
+            ? 'No pending requests for your organisation.'
+            : 'No approved/active requests available.'}
+        </p>
       ) : (
         <div className="stack-gap">
-          {requests.map((request) => (
+          {activeRequests.map((request) => (
             <article className="card" key={request.id}>
               <div className="section-header">
                 <div>
@@ -104,21 +145,23 @@ export default function PendingApprovals() {
 
                 <div className="button-row">
                   <StatusBadge status={request.status} />
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() =>
-                      setExpandedRequestId(expandedRequestId === request.id ? null : request.id)
-                    }
-                  >
-                    {expandedRequestId === request.id ? 'Hide review' : 'Review'}
-                  </button>
+                  {activeTab === TAB_PENDING && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() =>
+                        setExpandedRequestId(expandedRequestId === request.id ? null : request.id)
+                      }
+                    >
+                      {expandedRequestId === request.id ? 'Hide review' : 'Review'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="danger-button"
                     onClick={() => setRejectingRequestId(request.id)}
                   >
-                    Reject
+                    {request.status === 'Redeemed' ? 'Revoke now' : 'Reject'}
                   </button>
                   <Link
                     className="text-link"
@@ -134,7 +177,7 @@ export default function PendingApprovals() {
                 Submitted {new Date(request.createdAt).toLocaleString()} · Purpose: {request.purpose}
               </p>
 
-              {expandedRequestId === request.id && (
+              {activeTab === TAB_PENDING && expandedRequestId === request.id && (
                 <div className="mt-4">
                   <ApprovalPanel request={request} onApproved={(result) => handleApproved(request, result)} />
                 </div>

@@ -45,6 +45,7 @@ public interface IDataService
     Task<DataAccessRequest?> GetRequestByRequestIdAsync(string requestId);
     Task<List<DataAccessRequest>> GetRequestsByRequesterAsync(string requesterId, int limit = 100);
     Task<List<DataAccessRequest>> GetPendingRequestsByOrgAsync(string dataOwnerOrg, int limit = 100);
+    Task<List<DataAccessRequest>> GetOwnerReviewRequestsByOrgAsync(string dataOwnerOrg, int limit = 100);
     Task<bool> CreateDataAccessRequestAsync(DataAccessRequest request);
     Task PutRequestAsync(DataAccessRequest request);
     Task UpdateDataAccessRequestAsync(DataAccessRequest request);

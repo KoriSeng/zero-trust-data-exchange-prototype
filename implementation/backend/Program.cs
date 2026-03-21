@@ -588,6 +588,22 @@ app.MapGet("/requests/pending", async (HttpContext context, IDataService dataSer
 .WithName("GetPendingRequests")
 .RequireAuthorization("Authenticated");
 
+// Get approved/active requests for user's data-owner organization (for post-approval review/revocation)
+app.MapGet("/requests/owner-review", async (HttpContext context, IDataService dataService) =>
+{
+    var organizationId = context.User.FindFirst("user_organization")?.Value;
+
+    if (string.IsNullOrEmpty(organizationId))
+    {
+        return Results.BadRequest(new { error = "User has no organization assigned" });
+    }
+
+    var requests = await dataService.GetOwnerReviewRequestsByOrgAsync(organizationId);
+    return Results.Ok(requests.Select(ToPublicRequest).ToList());
+})
+.WithName("GetOwnerReviewRequests")
+.RequireAuthorization("Authenticated");
+
 // Get current user's own requests
 app.MapGet("/requests/my", async (HttpContext context, IDataService dataService) =>
 {
@@ -763,14 +779,20 @@ app.MapPost("/requests/{id}/deny", async (string id, DenyRequestDto dto, HttpCon
 
     if (request.Status != RequestStatus.PendingOwnerApproval &&
         request.Status != RequestStatus.OtpSent &&
-        request.Status != RequestStatus.ClaimPending)
+        request.Status != RequestStatus.ClaimPending &&
+        request.Status != RequestStatus.Redeemed)
     {
-        return Results.BadRequest(new { error = $"Request is not awaiting approval (current status: {request.Status})" });
+        return Results.BadRequest(new { error = $"Request is not in a deny/revoke state (current status: {request.Status})" });
     }
 
-    request.Status = RequestStatus.Denied;
+    var isRedeemedRevoke = request.Status == RequestStatus.Redeemed;
+
+    request.Status = isRedeemedRevoke ? RequestStatus.Revoked : RequestStatus.Denied;
     request.DeniedBy = denierId;
     request.DeniedAt = DateTime.UtcNow;
+    request.RevokedBy = isRedeemedRevoke ? denierId : request.RevokedBy;
+    request.RevokedAt = isRedeemedRevoke ? DateTime.UtcNow : request.RevokedAt;
+    request.PresignedUrlExpiresAt = isRedeemedRevoke ? DateTime.UtcNow : request.PresignedUrlExpiresAt;
     request.DenialReason = dto.Reason;
     request.UpdatedAt = DateTime.UtcNow;
 
@@ -778,19 +800,27 @@ app.MapPost("/requests/{id}/deny", async (string id, DenyRequestDto dto, HttpCon
 
     await dataService.CreateAuditEventAsync(new AuditEvent
     {
-        EventType = "REQUEST_DENIED",
+        EventType = isRedeemedRevoke ? "REQUEST_REVOKED" : "REQUEST_DENIED",
         ActorId = denierId,
         OrganizationId = denierOrg,
         RequestId = request.RequestId,
         DatasetId = request.DatasetId,
-        Description = $"Request {request.RequestId} denied by {denierId}: {dto.Reason ?? "no reason given"}",
+        Description = isRedeemedRevoke
+            ? $"Request {request.RequestId} access revoked by {denierId}: {dto.Reason ?? "no reason given"}"
+            : $"Request {request.RequestId} denied by {denierId}: {dto.Reason ?? "no reason given"}",
         Result = AuditEventResult.Success
     });
 
-    logger.LogInformation("Request {requestId} denied by {denierId}", request.RequestId, denierId);
+    logger.LogInformation(
+        isRedeemedRevoke
+            ? "Request {requestId} revoked by {denierId}"
+            : "Request {requestId} denied by {denierId}",
+        request.RequestId,
+        denierId);
 
-    // Terminate the Step Functions workflow if we have a task token
-    if (!string.IsNullOrWhiteSpace(request.ApprovalTaskToken))
+    // Terminate the Step Functions workflow.
+    // Prefer task-token failure callback when available; fallback to StopExecution for later stages.
+    if (!isRedeemedRevoke && !string.IsNullOrWhiteSpace(request.ApprovalTaskToken))
     {
         try
         {
@@ -806,12 +836,35 @@ app.MapPost("/requests/{id}/deny", async (string id, DenyRequestDto dto, HttpCon
             logger.LogError(ex, "Failed to send task failure to Step Functions for request {requestId}, but denial was recorded", request.RequestId);
         }
     }
+    else if (!isRedeemedRevoke && !string.IsNullOrWhiteSpace(request.WorkflowExecutionArn))
+    {
+        try
+        {
+            await stepFunctionsService.StopExecutionAsync(
+                request.WorkflowExecutionArn,
+                "RequestDenied",
+                $"Request {request.RequestId} was denied by {denierId}. Reason: {dto.Reason ?? "no reason given"}"
+            );
+            logger.LogInformation("Stopped Step Functions execution for denied request {requestId}", request.RequestId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to stop Step Functions execution for denied request {requestId}, but denial was recorded", request.RequestId);
+        }
+    }
     else
     {
-        logger.LogWarning("No approval task token found for request {requestId}, Step Functions workflow may still be running", request.RequestId);
+        logger.LogWarning("No Step Functions callback token or execution ARN found for request {requestId}; workflow termination could not be signaled", request.RequestId);
     }
 
-    return Results.Ok(new { requestId = request.RequestId, status = request.Status.ToString() });
+    return Results.Ok(new
+    {
+        requestId = request.RequestId,
+        status = request.Status.ToString(),
+        message = isRedeemedRevoke
+            ? "Request access revoked immediately."
+            : "Request denied."
+    });
 })
 .WithName("DenyRequest")
 .RequireAuthorization("Authenticated");
