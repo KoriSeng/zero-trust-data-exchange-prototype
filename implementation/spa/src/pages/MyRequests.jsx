@@ -181,10 +181,17 @@ export default function MyRequests() {
                 >
                   {expandedRequestId === request.id ? 'Hide details' : 'Show details'}
                 </button>
+                <Link
+                  className="text-link"
+                  to={`/requests/${request.id}/audit`}
+                  state={{ from: '/requests' }}
+                >
+                  View audit logs
+                </Link>
               </div>
 
               {expandedRequestId === request.id && (
-                <div className="request-card-expanded">
+                <div className="request-card-expanded space-y-4">
                   <RedeemRequestForm request={request} onRedeemed={loadRequests} />
                 </div>
               )}

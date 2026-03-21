@@ -445,8 +445,6 @@ module "cognito" {
   ]
 
   logout_urls = [
-    "http://localhost:5173",
-    "https://localhost:5173",
     "https://${aws_cloudfront_distribution.spa.domain_name}"
   ]
 

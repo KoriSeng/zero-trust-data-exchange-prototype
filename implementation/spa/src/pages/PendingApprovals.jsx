@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import ApprovalPanel from '../components/ApprovalPanel';
 import RejectModal from '../components/RejectModal';
 import StatusBadge from '../components/StatusBadge';
@@ -119,6 +120,13 @@ export default function PendingApprovals() {
                   >
                     Reject
                   </button>
+                  <Link
+                    className="text-link"
+                    to={`/requests/${request.id}/audit`}
+                    state={{ from: '/approvals' }}
+                  >
+                    Audit logs
+                  </Link>
                 </div>
               </div>
 
@@ -127,7 +135,9 @@ export default function PendingApprovals() {
               </p>
 
               {expandedRequestId === request.id && (
-                <ApprovalPanel request={request} onApproved={(result) => handleApproved(request, result)} />
+                <div className="mt-4">
+                  <ApprovalPanel request={request} onApproved={(result) => handleApproved(request, result)} />
+                </div>
               )}
             </article>
           ))}

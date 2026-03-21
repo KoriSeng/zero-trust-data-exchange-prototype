@@ -8,6 +8,7 @@ import DatasetExplorer from './pages/DatasetExplorer';
 import Login from './pages/Login';
 import MyRequests from './pages/MyRequests';
 import PendingApprovals from './pages/PendingApprovals';
+import RequestAuditLogs from './pages/RequestAuditLogs';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
           >
             <Route path="/" element={<Dashboard />} />
             <Route path="/requests" element={<MyRequests />} />
+            <Route path="/requests/:id/audit" element={<RequestAuditLogs />} />
             <Route path="/datasets" element={<DatasetExplorer />} />
             <Route path="/approvals" element={<PendingApprovals />} />
           </Route>
