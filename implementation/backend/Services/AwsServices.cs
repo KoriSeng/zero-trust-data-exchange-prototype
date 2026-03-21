@@ -276,4 +276,25 @@ public class StepFunctionsService : IStepFunctionsService
             throw;
         }
     }
+
+    public async Task StopExecutionAsync(string executionArn, string error, string cause)
+    {
+        try
+        {
+            var request = new StopExecutionRequest
+            {
+                ExecutionArn = executionArn,
+                Error = error,
+                Cause = cause
+            };
+
+            await _stepFunctionsClient.StopExecutionAsync(request);
+            _logger.LogInformation("Stopped Step Functions execution {executionArn} with error {error}", executionArn, error);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error stopping Step Functions execution {executionArn}", executionArn);
+            throw;
+        }
+    }
 }

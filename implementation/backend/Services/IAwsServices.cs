@@ -60,6 +60,11 @@ public interface IStepFunctionsService
     /// Terminate a wait-for-task-token step by sending failure callback
     /// </summary>
     Task SendTaskFailureAsync(string taskToken, string error, string cause);
+
+    /// <summary>
+    /// Stop a workflow execution when callback token is unavailable
+    /// </summary>
+    Task StopExecutionAsync(string executionArn, string error, string cause);
 }
 
 /// <summary>
