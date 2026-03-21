@@ -942,7 +942,12 @@ app.MapPost("/requests/{id}/download", async (string id, HttpContext context, ID
         }
     });
 
-    return Results.Redirect(url);
+    return Results.Ok(new
+    {
+        downloadUrl = url,
+        objectKey = key,
+        expiresAt = expiresAt
+    });
 })
 .WithName("DownloadRequestFile")
 .RequireAuthorization("Authenticated");
